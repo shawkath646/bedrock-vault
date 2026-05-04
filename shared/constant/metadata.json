@@ -1,0 +1,13 @@
+{
+    "name": "Anonymous File Storage",
+    "version": "1.0.0",
+    "author": {
+        "name": "Shawkat Hossain Maruf",
+        "url": "https://shawkath646.pro"
+    },
+    "publishedBy": {
+        "name": "Cloudburst Lab",
+        "url": "https://cloudburstlab.vercel.app",
+        "icon": "https://cloudburstlab.vercel.app/api/branding/logo?variant=transparent"
+    }
+}
