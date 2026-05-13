@@ -10,15 +10,21 @@ lerna-debug.log*
 # Dependencies and build output
 node_modules/
 dist/
-dist-ssr/
 dist-electron/
+dist-ssr/
 coverage/
 .vite/
 *.tsbuildinfo
 *.local
 
+# Node-gyp / native build output
+build/
+
+# Native build artifacts
+src/native/build/
+
 # Editor directories and files
-.vscode/*
+.vscode
 !.vscode/extensions.json
 .idea/
 .vscode-test/

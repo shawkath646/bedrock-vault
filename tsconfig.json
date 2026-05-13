@@ -2,13 +2,19 @@
   "compilerOptions": {
     "paths": {
       "@/*": [
-        "./src/*"
+        "./src/renderer/*"
       ],
-      "@electron/*": [
-        "./electron/*"
+      "@main/*": [
+        "./src/main/*"
+      ],
+      "@renderer/*": [
+        "./src/renderer/*"
       ],
       "@shared/*": [
-        "./shared/*"
+        "./src/shared/*"
+      ],
+      "@native/*": [
+        "./src/native/*"
       ]
     },
     "target": "ES2023",
@@ -35,8 +41,6 @@
   },
   "include": [
     "src",
-    "electron",
-    "shared",
     "vite.config.ts"
   ]
 }

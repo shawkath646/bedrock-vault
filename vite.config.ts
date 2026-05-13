@@ -5,28 +5,70 @@ import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
 
 const alias = {
-  '@': fileURLToPath(new URL('./src', import.meta.url)),
-  '@electron': fileURLToPath(new URL('./electron', import.meta.url)),
-  '@shared': fileURLToPath(new URL('./shared', import.meta.url)),
+  '@': fileURLToPath(new URL('./src/renderer', import.meta.url)),
+  '@main': fileURLToPath(new URL('./src/main', import.meta.url)),
+  '@renderer': fileURLToPath(new URL('./src/renderer', import.meta.url)),
+  '@shared': fileURLToPath(new URL('./src/shared', import.meta.url)),
+  '@native': fileURLToPath(new URL('./src/native', import.meta.url)),
 }
 
 export default defineConfig({
   resolve: { alias },
+  base: './',
+  build: {
+    outDir: 'dist/renderer',
+  },
 
   plugins: [
     tailwindcss(),
     react(),
     electron({
       main: {
-        entry: 'electron/main.ts',
+        entry: 'src/main/main.ts',
         vite: {
           resolve: { alias },
+          build: {
+            outDir: 'dist/main',
+            rollupOptions: {
+              external: [
+                'os',
+                'path',
+                'fs',
+                'crypto',
+                'stream',
+                'util',
+                'events',
+                'buffer',
+                'http',
+                'https',
+                'url',
+                'querystring',
+                'zlib',
+                'node-disk-info',
+              ],
+            },
+          },
         },
       },
       preload: {
-        input: 'electron/preload.ts',
+        input: 'src/preload/preload.ts',
         vite: {
           resolve: { alias },
+          build: {
+            outDir: 'dist/preload',
+            rollupOptions: {
+              external: [
+                'os',
+                'path',
+                'fs',
+                'crypto',
+                'stream',
+                'util',
+                'events',
+                'buffer',
+              ],
+            },
+          },
         },
       },
     }),
