@@ -7,6 +7,9 @@ export interface SelectedFile {
     size: number;
 }
 
+export interface LockableFile extends SelectedFile {
+    release: () => Promise<void>;
+}
 
 export interface HandleFileOptions {
     currentPath?: string;

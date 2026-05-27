@@ -2,6 +2,8 @@ import { app } from 'electron'
 import { createWindow, getMainWindow } from './windows/windowManager'
 import { registerIpcHandlers } from './ipc/handlers'
 import { initializeFileSelectionHandler } from './handlers/file-selection/file-selection.handler'
+import logger from './utils/logger'
+import metadata from '@shared/constant/metadata.json'
 
 function setupSingleInstanceLock(): boolean {
 
@@ -45,7 +47,10 @@ if (setupSingleInstanceLock()) {
 
   app.whenReady().then(async () => {
 
+    await logger.initialize();
     await initializeFileSelectionHandler()
+
+    await logger.info("APP_START", `version=${metadata.version}`);
 
     createWindow({
       devServerUrl: process.env.VITE_DEV_SERVER_URL

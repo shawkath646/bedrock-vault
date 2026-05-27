@@ -2,15 +2,35 @@ import { type IpcMainInvokeEvent, app, dialog } from 'electron';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import z from 'zod';
-import { defaultOptions as defaultEncryptionOptions } from '@shared/constant/encryptionOptions';
+import { fetchAllSelectedItems } from "@main/handlers/file-selection/file-selection.handler"
+import { defaultOptions as defaultOptions } from '@shared/constant/encryptionOptions';
 import type { EncryptionOptions } from '@shared/types/fileEncryption';
+import appMetadata from "@shared/constant/metadata.json";
 
 const encryptionOptionsFilePath = path.join(app.getPath('userData'), 'encryption_preferences.json');
 
+const getDefaultOptions = (): EncryptionOptions => {
+
+    const chunkName = fetchAllSelectedItems().selectedOptions.chunkName;
+    const defaultPath = path.join(app.getPath("documents"), appMetadata.name, chunkName);
+
+    return {
+        ...defaultOptions,
+        fileOutputDirectory: defaultPath,
+        backupKeyFileDirectory: defaultPath,
+        backupKeyDirectory: defaultPath
+    }
+};
+
 const EncryptionOptionsSchema: z.ZodType<EncryptionOptions> = z.object({
+    encryptionLevel: z.union([
+        z.literal(1),
+        z.literal(2),
+        z.literal(3)
+    ]),
     keySaveDirectory: z.string(),
     fileOutputDirectory: z.string(),
-    encryptFileHeader: z.boolean(),
+    backupKeyFileDirectory: z.string().optional(),
     encryptFileNameAndDirectory: z.boolean(),
     addToCloudSync: z.boolean(),
     addTrap: z.boolean(),
@@ -39,10 +59,11 @@ export async function fetchEncryptionOptions(): Promise<EncryptionOptions> {
     } catch (error) {
         const nodeError = error as NodeJS.ErrnoException;
         if (nodeError.code !== 'ENOENT') {
-            console.error('Failed to read or validate encryption options:', error);
+            console.error('Failed to read or validate encryption options:');
+            await fs.rm(encryptionOptionsFilePath, { force: true });
         }
 
-        return defaultEncryptionOptions;
+        return getDefaultOptions();
     }
 }
 
@@ -66,6 +87,6 @@ export async function updateEncryptionOptions(
 
 export async function resetEncryptionOptions(): Promise<EncryptionOptions> {
     await ensureEncryptionOptionsDirectoryExists();
-    await fs.writeFile(encryptionOptionsFilePath, JSON.stringify(defaultEncryptionOptions, null, 2));
-    return defaultEncryptionOptions;
+    await fs.writeFile(encryptionOptionsFilePath, JSON.stringify(getDefaultOptions(), null, 2));
+    return getDefaultOptions();
 }

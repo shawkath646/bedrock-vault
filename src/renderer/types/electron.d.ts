@@ -5,8 +5,9 @@ import type {
   SelectedFilesState,
 } from "@shared/types/fileSelection";
 
-import type { EncryptionOptions } from "@shared/types/fileEncryption";
+import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from "@shared/types/fileEncryption";
 import type { AppConfig } from "@shared/types/global";
+import type { PopupPayload } from "@shared/types/popup";
 
 declare global {
   interface Window {
@@ -14,7 +15,8 @@ declare global {
       minimize: () => Promise<void> | void;
       close: () => Promise<void> | void;
       openDevTools: () => Promise<void>;
-      openPathWithSysApp: (path: string) => Promise<void>
+      openPathWithSysApp: (path: string) => Promise<void>;
+      onPopupShow: (callback: (payload: PopupPayload) => void) => () => void;
     };
 
     appConfig: {
@@ -57,6 +59,13 @@ declare global {
         config: Partial<EncryptionOptions>
       ) => Promise<void>;
     };
+
+    encryptionProgress: {
+      startEncryptionFlow: () => Promise<void>;
+      abortEncryptionFlow: () => Promise<void>;
+      onStageUpdate: (callback: (stage: EncryptionStage) => void) => () => void;
+      onProgress: (callback: (fileList: EncryptionProgress[]) => void) => () => void;
+    }
   }
 }
 

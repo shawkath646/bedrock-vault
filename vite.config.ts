@@ -30,6 +30,11 @@ export default defineConfig({
           build: {
             outDir: 'dist/main',
             rollupOptions: {
+              input: {
+                main: 'src/main/main.ts',
+                'handlers/encryption/encryption-worker':
+                  'src/main/handlers/encryption/encryption-worker.ts',
+              },
               external: [
                 'os',
                 'path',
@@ -44,7 +49,10 @@ export default defineConfig({
                 'url',
                 'querystring',
                 'zlib',
-                'node-disk-info',
+                'systeminformation',
+                'proper-lockfile',
+                'piscina',
+                'fs-extra'
               ],
             },
           },

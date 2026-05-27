@@ -303,14 +303,14 @@ export async function fetchCurrentPathSelectedFiles(
     return result;
 }
 
-export async function fetchAllSelectedItems(): Promise<{
+export function fetchAllSelectedItems(): {
     selectedFiles: SelectedFile[];
     totalSize: number;
     fileCount: number;
     selectedOptions: FileSelectionOptions;
-}> {
+} {
     const map = requireSelectedItemsMap();
-    const selectedFiles = [...map.values()];
+    const selectedFiles = [...map.values()].filter(file => !file.isDir);
 
     return {
         selectedFiles,
@@ -320,7 +320,7 @@ export async function fetchAllSelectedItems(): Promise<{
     };
 }
 
-export async function clearSelectedItems(): Promise<void> {
+export async function clearSelectedItems() {
     const map = requireSelectedItemsMap();
     map.clear();
     totalSize = calculateSelectedFilesSize([]);

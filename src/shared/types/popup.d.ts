@@ -1,9 +1,3 @@
-export interface AppConfig {
-    initialized: boolean;
-    theme: "system" | "light" | "dark";
-    shouldUpdate: boolean;
-}
-
 export type PopupType = 'info' | 'warning' | 'error' | 'success';
 
 export interface PopupPayload {

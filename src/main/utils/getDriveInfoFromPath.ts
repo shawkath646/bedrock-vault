@@ -1,16 +1,22 @@
-import nodeDiskInfo from 'node-disk-info';
+import si from 'systeminformation';
 import path from 'path';
 
 export default async function getDriveInfoFromPath(filePath: string) {
-    const parsedPath = path.parse(path.resolve(filePath));
-    const root = parsedPath.root;
+    const resolvedPath = path.resolve(filePath);
+    const root = path.parse(resolvedPath).root;
 
-    const disks = await nodeDiskInfo.getDiskInfo();
+    const disks = await si.fsSize();
 
-    const driveInfo = disks.find(disk =>
-        root.startsWith(disk.mounted.substring(0, 1)) ||
-        root === disk.mounted
-    );
+    return disks.find(disk => {
+        const mount = path.normalize(disk.mount || disk.fs);
 
-    return driveInfo;
+        if (process.platform === 'win32') {
+            return (
+                mount.toLowerCase().startsWith(root.toLowerCase().charAt(0)) ||
+                mount.toLowerCase() === root.toLowerCase()
+            );
+        }
+
+        return root.startsWith(mount);
+    });
 }

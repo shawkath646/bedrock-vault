@@ -6,7 +6,7 @@ import {
     selectEncryptionOutputDirectory,
     updateEncryptionOptions,
 } from '../handlers/encryption/encryption-options.store'
-import { encryptionStatusEmitter, fetchCurrentEncryptionStatus } from '../handlers/encryption/encryption-workflow.handler'
+import { abortEncryption, handleStartEncryptionWorkflow } from '../handlers/encryption/encryption-workflow.handler'
 import {
     clearSelectedItems,
     fetchAllSelectedItems,
@@ -17,20 +17,10 @@ import {
     handleFileSelectionRemoveItem,
     updateFileSelectionOptions,
 } from '../handlers/file-selection/file-selection.handler'
+import { popupEmitter } from './popup.emitter'
+import { encryptionEmitter } from "../handlers/encryption/helpers/encryption-emitter";
 
 export function registerIpcHandlers(): void {
-
-    const window = getMainWindow()
-
-    encryptionStatusEmitter.on(
-        "encryption-status-update",
-        (status) => {
-            window?.webContents.send(
-                "encryption-status-update",
-                status
-            );
-        }
-    );
 
     ipcMain.handle('window:minimize', () => {
         getMainWindow()?.minimize()
@@ -64,5 +54,19 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('save-encryption-options', updateEncryptionOptions)
     ipcMain.handle('select-encrypted-output-directory', selectEncryptionOutputDirectory)
 
-    ipcMain.handle("get-encryption-status", fetchCurrentEncryptionStatus);
+
+    ipcMain.handle('start-encryption-flow', handleStartEncryptionWorkflow)
+    ipcMain.handle('abort-encryption-flow', abortEncryption)
+
+    encryptionEmitter.on('stage', (status) => {
+        getMainWindow()?.webContents.send('encryption-stage-update', status);
+    });
+
+    encryptionEmitter.on('file-progress', (fileList) => {
+        getMainWindow()?.webContents.send('encryption-file-progress', fileList);
+    });
+
+    popupEmitter.on('show', (payload) => {
+        getMainWindow()?.webContents.send('popup:show', payload);
+    });
 }

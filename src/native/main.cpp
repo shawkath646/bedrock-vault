@@ -13,12 +13,15 @@
 #else
 #error "Cannot find napi.h. Add node-addon-api and Node headers to includePath."
 #endif
+
 #include <windows.h>
 #include <wincred.h>
+#include <lmcons.h>
 #include <vector>
 #include <string>
 
 #pragma comment(lib, "credui.lib")
+#pragma comment(lib, "advapi32.lib")
 
 class CredentialWorker : public Napi::AsyncWorker
 {
@@ -32,25 +35,42 @@ public:
         CREDUI_INFOW credui = {0};
         credui.cbSize = sizeof(credui);
         credui.hwndParent = NULL;
-        credui.pszMessageText = L"Please enter your vault password.";
-        credui.pszCaptionText = L"Secure Encryption Vault";
+        credui.pszMessageText = L"Please enter chunk password.";
+        credui.pszCaptionText = L"Anonymous File Storage";
 
         ULONG authPackage = 0;
         LPVOID outAuthBuffer = NULL;
         ULONG outAuthBufferSize = 0;
         BOOL save = FALSE;
 
-        // Triggers the native Windows Security Prompt
+        wchar_t targetName[UNLEN + 1];
+        DWORD targetNameLen = UNLEN + 1;
+
+        if (!GetUserNameW(targetName, &targetNameLen))
+        {
+            wcscpy_s(targetName, UNLEN + 1, L"UnknownUser");
+        }
+
+        wchar_t emptyPassword[] = L"";
+
+        DWORD inAuthBufferSize = 0;
+        CredPackAuthenticationBufferW(0, targetName, emptyPassword, NULL, &inAuthBufferSize);
+
+        std::vector<BYTE> inAuthBuffer(inAuthBufferSize);
+        CredPackAuthenticationBufferW(0, targetName, emptyPassword, inAuthBuffer.data(), &inAuthBufferSize);
+
+        DWORD flags = CREDUIWIN_GENERIC | CREDUIWIN_IN_CRED_ONLY;
+
         DWORD result = CredUIPromptForWindowsCredentialsW(
             &credui,
             0,
             &authPackage,
-            NULL,
-            0,
+            inAuthBuffer.data(),
+            inAuthBufferSize,
             &outAuthBuffer,
             &outAuthBufferSize,
             &save,
-            CREDUI_FLAGS_GENERIC_CREDENTIALS | CREDUI_FLAGS_ALWAYS_SHOW_UI | CREDUI_FLAGS_DO_NOT_PERSIST);
+            flags);
 
         if (result == ERROR_SUCCESS)
         {
@@ -62,7 +82,6 @@ public:
             std::vector<wchar_t> domain(domainLen);
             std::vector<wchar_t> pass(passLen);
 
-            // Extract the raw password from the Windows Auth Buffer
             CredUnPackAuthenticationBufferW(
                 CREDUI_FLAGS_GENERIC_CREDENTIALS,
                 outAuthBuffer,
@@ -71,7 +90,6 @@ public:
                 domain.data(), &domainLen,
                 pass.data(), &passLen);
 
-            // Convert Wide Char (Windows) to UTF-8 (Node.js)
             int utf8Len = WideCharToMultiByte(CP_UTF8, 0, pass.data(), -1, NULL, 0, NULL, NULL);
             if (utf8Len > 0)
             {
@@ -79,7 +97,6 @@ public:
                 WideCharToMultiByte(CP_UTF8, 0, pass.data(), -1, passwordData.data(), utf8Len, NULL, NULL);
             }
 
-            // CRITICAL SECURITY: Zero out the Windows memory buffers instantly
             SecureZeroMemory(pass.data(), pass.size() * sizeof(wchar_t));
             SecureZeroMemory(user.data(), user.size() * sizeof(wchar_t));
             SecureZeroMemory(outAuthBuffer, outAuthBufferSize);
@@ -98,10 +115,8 @@ public:
     void OnOK() override
     {
         Napi::Env env = Env();
-        // Create a Node.js Buffer from our UTF-8 vector. (-1 removes the null terminator)
         Napi::Buffer<char> jsBuffer = Napi::Buffer<char>::Copy(env, passwordData.data(), passwordData.size() - 1);
 
-        // CRITICAL SECURITY: Zero out the C++ vector memory before yielding to JS
         SecureZeroMemory(passwordData.data(), passwordData.size());
 
         deferred.Resolve(jsBuffer);
@@ -117,7 +132,6 @@ private:
     std::vector<char> passwordData;
 };
 
-// JS Wrapper Function
 Napi::Value PromptPassword(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
@@ -129,7 +143,6 @@ Napi::Value PromptPassword(const Napi::CallbackInfo &info)
     return deferred.Promise();
 }
 
-// Module Initialization
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set(Napi::String::New(env, "promptPassword"), Napi::Function::New(env, PromptPassword));
