@@ -1,6 +1,5 @@
 import { Input } from "@renderer/components/ui/input";
 import { Switch } from "@renderer/components/ui/switch";
-import { Label } from "@renderer/components/ui/label";
 import {
     Select,
     SelectContent,
@@ -9,53 +8,86 @@ import {
     SelectLabel,
     SelectTrigger,
     SelectValue,
-} from "@renderer/components/ui/select"
+} from "@renderer/components/ui/select";
+import { Controller, useWatch } from "react-hook-form";
+import type { Control, UseFormRegister, FieldErrors } from "react-hook-form";
 import type { FileSelectionOptions } from "@shared/types/fileSelection";
-export default function FileOptions({
-    options,
-    setOptions
-}: {
-    options: FileSelectionOptions,
-    setOptions: React.Dispatch<React.SetStateAction<FileSelectionOptions>>
-}) {
+import { Field, FieldLabel, FieldError } from "@renderer/components/ui/field";
+
+interface FileOptionsProps {
+    control: Control<FileSelectionOptions>;
+    register: UseFormRegister<FileSelectionOptions>;
+    errors: FieldErrors<FileSelectionOptions>;
+}
+
+const FILE_TYPE_OPTIONS = [
+    { id: "documents", label: "Documents" },
+    { id: "audio", label: "Audio" },
+    { id: "video", label: "Video" },
+    { id: "pictures", label: "Pictures" },
+    { id: "programs", label: "Programs" },
+    { id: "others", label: "Others" },
+] as const;
+
+export default function FileOptions({ control, register, errors }: FileOptionsProps) {
+    const newChunk = useWatch({ control, name: "newChunk" });
 
     return (
-        <div className="flex flex-col md:flex-row gap-8">
-            <div className="w-full md:w-80 space-y-4 p-2">
+        <div className="flex gap-8 items-start w-full">
+            <div className="w-80 shrink-0 space-y-4">
+                <Field orientation="horizontal">
+                    <FieldLabel htmlFor="include-subfolders">
+                        Include Subfolders
+                    </FieldLabel>
+                    <Controller
+                        control={control}
+                        name="includeSubFolders"
+                        render={({ field }) => (
+                            <Switch
+                                id="include-subfolders"
+                                checked={Boolean(field.value)}
+                                onCheckedChange={field.onChange}
+                            />
+                        )}
+                    />
+                </Field>
 
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="include-subfolders" className="text-xs font-light">
-                            Include Subfolders
-                        </Label>
-                        <Switch id="include-subfolders" checked={options.includeSubFolders} onCheckedChange={(v) => setOptions(o => ({ ...o, includeSubFolders: Boolean(v) }))} />
-                    </div>
-                </div>
+                <Field orientation="horizontal" aria-disabled>
+                    <FieldLabel htmlFor="new-chunk" className="text-muted-foreground">New Chunk</FieldLabel>
+                    <Controller
+                        control={control}
+                        name="newChunk"
+                        render={({ field }) => (
+                            <Switch
+                                id="new-chunk"
+                                disabled
+                                checked={Boolean(field.value)}
+                                onCheckedChange={field.onChange}
+                            />
+                        )}
+                    />
+                </Field>
 
-                <div className="flex items-center justify-between">
-                    <Label htmlFor="new-chunk" className="text-xs">New Chunk</Label>
-                    <Switch id="new-chunk" checked={options.newChunk} onCheckedChange={(v) => setOptions(o => ({ ...o, newChunk: Boolean(v) }))} />
-                </div>
-
+                {/* Dynamic Chunk Context Block */}
                 <div className="h-16">
-                    {options.newChunk ? (
-                        <div className="space-y-2">
-                            <Label htmlFor="chunk-name" className="text-xs text-muted-foreground">
+                    {newChunk ? (
+                        <Field aria-invalid={!!errors.chunkName}>
+                            <FieldLabel htmlFor="chunk-name">
                                 Chunk Name
-                            </Label>
+                            </FieldLabel>
                             <Input
                                 id="chunk-name"
-                                value={options.chunkName}
-                                onChange={(e) => setOptions(o => ({ ...o, chunkName: e.target.value }))}
+                                {...register("chunkName")}
                                 placeholder="e.g. MyBackupChunk"
                                 className="h-8 text-xs bg-muted/40 border-none"
                             />
-                        </div>
+                            <FieldError errors={[errors.chunkName]} />
+                        </Field>
                     ) : (
-                        <div className="space-y-2">
-                            <Label htmlFor="select-chunk" className="text-xs text-muted-foreground">
+                        <Field>
+                            <FieldLabel htmlFor="select-chunk">
                                 Select Chunk
-                            </Label>
+                            </FieldLabel>
                             <Select id="select-chunk">
                                 <SelectTrigger className="w-full">
                                     <SelectValue placeholder="Select a fruit" />
@@ -71,64 +103,49 @@ export default function FileOptions({
                                     </SelectGroup>
                                 </SelectContent>
                             </Select>
-                        </div>
+                        </Field>
                     )}
                 </div>
             </div>
 
-            <div className="space-y-2 w-full md:w-80 mt-auto p-2">
-                <Label className="text-xs text-muted-foreground">File Types</Label>
-
-                <div className="grid grid-cols-2 gap-y-2 gap-x-10">
-
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="documents" className="text-xs">Documents</Label>
-                        <Switch id="documents" checked={options.documents} onCheckedChange={(v) => setOptions(o => ({ ...o, documents: Boolean(v) }))} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="audio" className="text-xs">Audio</Label>
-                        <Switch id="audio" checked={options.audio} onCheckedChange={(v) => setOptions(o => ({ ...o, audio: Boolean(v) }))} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="video" className="text-xs">Video</Label>
-                        <Switch id="video" checked={options.video} onCheckedChange={(v) => setOptions(o => ({ ...o, video: Boolean(v) }))} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="pictures" className="text-xs">Pictures</Label>
-                        <Switch id="pictures" checked={options.pictures} onCheckedChange={(v) => setOptions(o => ({ ...o, pictures: Boolean(v) }))} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="programs" className="text-xs">Programs</Label>
-                        <Switch id="programs" checked={options.programs} onCheckedChange={(v) => setOptions(o => ({ ...o, programs: Boolean(v) }))} />
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                        <Label htmlFor="others" className="text-xs">Others</Label>
-                        <Switch id="others" checked={options.others} onCheckedChange={(v) => setOptions(o => ({ ...o, others: Boolean(v) }))} />
+            <div className="flex-1 flex gap-8 items-end p-2">
+                <div className="flex-1 space-y-2">
+                    <FieldLabel className="text-xs text-muted-foreground">File Types</FieldLabel>
+                    <div className="grid grid-cols-2 gap-y-2 gap-x-8">
+                        {FILE_TYPE_OPTIONS.map(({ id, label }) => (
+                            <Field key={id} orientation="horizontal" className="flex items-center justify-between gap-4">
+                                <FieldLabel htmlFor={id} className="text-xs">{label}</FieldLabel>
+                                <Controller
+                                    control={control}
+                                    name={id as keyof FileSelectionOptions}
+                                    render={({ field }) => (
+                                        <Switch
+                                            id={id}
+                                            checked={Boolean(field.value)}
+                                            onCheckedChange={field.onChange}
+                                        />
+                                    )}
+                                />
+                            </Field>
+                        ))}
                     </div>
                 </div>
 
-                <div className="space-y-2">
-                    <Label htmlFor="max-size" className="text-xs">
-                        Max Size (MB)
-                    </Label>
-                    <Input
-                        id="max-size"
-                        type="number"
-                        value={options.maxSize}
-                        onChange={(e) => {
-                            const value = Number(e.target.value);
-                            if (!Number.isFinite(value) || value < 0) return;
-                            setOptions(o => ({ ...o, maxSize: value }));
-                        }}
-                        placeholder="0"
-                        className="h-8 text-xs bg-muted/40 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                    />
+                {/* Sub-Section: Max Size Config (Moved here to save bottom space) */}
+                <div className="w-44 shrink-0">
+                    <Field aria-invalid={!!errors.maxSize} className="space-y-2">
+                        <FieldLabel htmlFor="max-size" className="text-xs text-muted-foreground">
+                            Max Size (MB)
+                        </FieldLabel>
+                        <Input
+                            id="max-size"
+                            type="number"
+                            {...register("maxSize", { valueAsNumber: true })}
+                            placeholder="0"
+                            className="h-8 text-xs bg-muted/40 border-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                        />
+                        <FieldError errors={[errors.maxSize]} />
+                    </Field>
                 </div>
             </div>
         </div>

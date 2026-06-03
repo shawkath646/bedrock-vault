@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import TitleBar from "@renderer/components/navigation/Titlebar";
 import { Button } from "@renderer/components/ui/button";
@@ -20,6 +21,14 @@ const ICON_ACCENTS = [
 export default function ConfirmEncryptionPage() {
 
     const navigate = useNavigate();
+
+    useEffect(() => {
+        window.encryptionOptions.hasEncryptionPassword().then(hasPassword => {
+            if (!hasPassword) {
+                navigate("/encryption-options");
+            }
+        });
+    }, [navigate]);
 
     return (
         <div className="flex h-full flex-col">

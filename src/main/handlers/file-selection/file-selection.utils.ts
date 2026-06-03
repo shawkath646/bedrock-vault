@@ -24,17 +24,20 @@ const SelectedFileSchema: z.ZodType<SelectedFile> = z.object({
     size: z.number(),
 });
 
-const FileSelectionOptionsSchema: z.ZodType<FileSelectionOptions> = z.object({
+export const FileSelectionOptionsSchema: z.ZodType<FileSelectionOptions> = z.object({
     newChunk: z.boolean(),
     chunkName: z.string(),
     includeSubFolders: z.boolean(),
-    maxSize: z.number(),
+    maxSize: z.number().min(0, { message: "Max size must be a non-negative number" }),
     documents: z.boolean(),
     audio: z.boolean(),
     video: z.boolean(),
     pictures: z.boolean(),
     programs: z.boolean(),
     others: z.boolean(),
+}).refine(data => !data.newChunk || data.chunkName.trim().length > 0, {
+    message: "Chunk name is required when creating a new chunk",
+    path: ["chunkName"],
 });
 
 const PersistedSelectionStateSchema = z.object({

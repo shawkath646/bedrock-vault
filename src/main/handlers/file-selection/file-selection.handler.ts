@@ -8,6 +8,8 @@ import type {
     SelectedFile,
     SelectedFilesState,
 } from '@shared/types/fileSelection';
+import z from 'zod';
+import type { SaveResult } from '@shared/types/global';
 import {
     calculateSelectedFilesSize,
     countRegularFiles,
@@ -19,13 +21,16 @@ import {
     isFileTypeAllowed,
     normalizeVirtualPath,
     parsePersistedSelectionState,
+    FileSelectionOptionsSchema,
 } from './file-selection.utils';
+import logger from '../../utils/logger';
 
 let selectedItemsMap: Map<string, SelectedFile> | null = null;
 let selectedFilesConfigPath = '';
 let selectedOptions: FileSelectionOptions = defaultFileSelectionOptions;
 let totalSize = 0;
 let fileCount = 0;
+let writePromise: Promise<void> = Promise.resolve();
 
 function requireSelectedItemsMap(): Map<string, SelectedFile> {
     if (!selectedItemsMap) {
@@ -37,25 +42,28 @@ function requireSelectedItemsMap(): Map<string, SelectedFile> {
 
 async function persistSelectedItemsToDisk(): Promise<void> {
     const map = requireSelectedItemsMap();
+    const content = JSON.stringify(
+        {
+            selectedFiles: [...map.values()],
+            options: selectedOptions,
+            fileCount,
+            totalSize,
+        },
+        null,
+        2,
+    );
 
-    try {
-        const content = JSON.stringify(
-            {
-                selectedFiles: [...map.values()],
-                options: selectedOptions,
-                fileCount,
-                totalSize,
-            },
-            null,
-            2,
-        );
+    writePromise = writePromise.then(async () => {
+        try {
+            const temporaryFilePath = `${selectedFilesConfigPath}.tmp`;
+            await fs.writeFile(temporaryFilePath, content, 'utf-8');
+            await fs.rename(temporaryFilePath, selectedFilesConfigPath);
+        } catch (error) {
+            console.error('Error: Saving selected files to disk failed!', error);
+        }
+    });
 
-        const temporaryFilePath = `${selectedFilesConfigPath}.tmp`;
-        await fs.writeFile(temporaryFilePath, content, 'utf-8');
-        await fs.rename(temporaryFilePath, selectedFilesConfigPath);
-    } catch (error) {
-        console.error('Error: Saving selected files to disk failed!', error);
-    }
+    await writePromise;
 }
 
 async function loadPersistedSelectionState() {
@@ -141,6 +149,8 @@ export async function initializeFileSelectionHandler(): Promise<void> {
     selectedOptions = state.options;
     totalSize = state.totalSize;
     fileCount = state.fileCount;
+
+    await logger.info('FileSelection', `Initialized. Loaded ${fileCount} files, total size: ${totalSize} bytes`);
 }
 
 export async function fetchSelectedFilesState(): Promise<SelectedFilesState> {
@@ -154,13 +164,28 @@ export async function fetchSelectedFilesState(): Promise<SelectedFilesState> {
 export async function updateFileSelectionOptions(
     _event: IpcMainInvokeEvent,
     partialOptions: Partial<FileSelectionOptions>,
-): Promise<void> {
-    selectedOptions = {
-        ...selectedOptions,
-        ...partialOptions,
-    };
+): Promise<SaveResult<FileSelectionOptions>> {
+    try {
+        const mergedOptions = {
+            ...selectedOptions,
+            ...partialOptions,
+        };
 
-    await persistSelectedItemsToDisk();
+        const validatedOptions = FileSelectionOptionsSchema.parse(mergedOptions);
+        selectedOptions = validatedOptions;
+
+        await persistSelectedItemsToDisk();
+        await logger.info('FileSelection', `Options updated: ${JSON.stringify(partialOptions)}`);
+        return { success: true, data: validatedOptions };
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            return {
+                success: false,
+                errors: error.flatten().fieldErrors as Record<string, string[]>,
+            };
+        }
+        throw error;
+    }
 }
 
 export async function handleFileSelectionAddFiles(_event: IpcMainInvokeEvent, options: HandleFileOptions): Promise<void> {
@@ -169,6 +194,7 @@ export async function handleFileSelectionAddFiles(_event: IpcMainInvokeEvent, op
     });
 
     if (canceled || filePaths.length === 0) {
+        await logger.info('FileSelection', 'File selection dialog cancelled');
         return;
     }
 
@@ -214,6 +240,7 @@ export async function handleFileSelectionAddFiles(_event: IpcMainInvokeEvent, op
 
     if (hasChanges) {
         await persistSelectedItemsToDisk();
+        await logger.info('FileSelection', `Added files from dialog. New file count: ${fileCount}, size: ${totalSize} bytes`);
     }
 }
 
@@ -223,6 +250,7 @@ export async function handleFileSelectionAddFolder(_event: IpcMainInvokeEvent, o
     });
 
     if (canceled || filePaths.length === 0) {
+        await logger.info('FileSelection', 'Folder selection dialog cancelled');
         return;
     }
 
@@ -239,6 +267,7 @@ export async function handleFileSelectionAddFolder(_event: IpcMainInvokeEvent, o
     }
 
     await persistSelectedItemsToDisk();
+    await logger.info('FileSelection', `Added folders from dialog. New file count: ${fileCount}, size: ${totalSize} bytes`);
 }
 
 export async function handleFileSelectionRemoveItem(_event: IpcMainInvokeEvent, targetPath: string): Promise<void> {
@@ -277,6 +306,7 @@ export async function handleFileSelectionRemoveItem(_event: IpcMainInvokeEvent, 
 
     if (hasChanges) {
         await persistSelectedItemsToDisk();
+        await logger.info('FileSelection', `Removed item: ${targetPath}. New file count: ${fileCount}, size: ${totalSize} bytes`);
     }
 }
 
@@ -326,4 +356,5 @@ export async function clearSelectedItems() {
     totalSize = calculateSelectedFilesSize([]);
     fileCount = countRegularFiles([]);
     await persistSelectedItemsToDisk();
+    await logger.info('FileSelection', 'Cleared all selected items');
 }

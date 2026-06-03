@@ -6,8 +6,9 @@ import type {
 } from "@shared/types/fileSelection";
 
 import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from "@shared/types/fileEncryption";
-import type { AppConfig } from "@shared/types/global";
+import type { AppConfig, SaveResult } from "@shared/types/global";
 import type { PopupPayload } from "@shared/types/popup";
+import type { CloudStatus } from "@shared/types/cloudDrive";
 
 declare global {
   interface Window {
@@ -16,6 +17,8 @@ declare global {
       close: () => Promise<void> | void;
       openDevTools: () => Promise<void>;
       openPathWithSysApp: (path: string) => Promise<void>;
+      getAppUpdateInfo: () => Promise<{ lastUpdate: string; currentVersion: string; latestVersion: string; updateUrl: string }>;
+      openExternalUrl: (url: string) => Promise<void>;
       onPopupShow: (callback: (payload: PopupPayload) => void) => () => void;
     };
 
@@ -31,7 +34,7 @@ declare global {
 
       saveOptions: (
         config: Partial<FileSelectionOptions>
-      ) => Promise<FileSelectionOptions>;
+      ) => Promise<SaveResult<FileSelectionOptions>>;
 
       addFiles: (
         options: HandleFileOptions
@@ -52,12 +55,20 @@ declare global {
 
     encryptionOptions: {
       selectOutputPath: () => Promise<string | null>;
+      selectRecoveryPhraseSavePath: () => Promise<string | null>;
+      selectFileKeySavePath: () => Promise<string | null>;
 
       getOptions: () => Promise<EncryptionOptions>;
 
       saveOptions: (
         config: Partial<EncryptionOptions>
-      ) => Promise<void>;
+      ) => Promise<SaveResult<EncryptionOptions>>;
+
+      promptAndSetPassword: () => Promise<boolean>;
+      hasEncryptionPassword: () => Promise<boolean>;
+      clearEncryptionPassword: () => Promise<void>;
+      isTpmAvailable: () => Promise<boolean>;
+      isSoftwareKspAvailable: () => Promise<boolean>;
     };
 
     encryptionProgress: {
@@ -65,7 +76,19 @@ declare global {
       abortEncryptionFlow: () => Promise<void>;
       onStageUpdate: (callback: (stage: EncryptionStage) => void) => () => void;
       onProgress: (callback: (fileList: EncryptionProgress[]) => void) => () => void;
-    }
+    },
+    
+    cloudDrive: {
+      getCloudStatus: () => Promise<CloudStatus>
+    };
+
+    appLogs: {
+      log: (type: "INFO" | "WARN" | "ERROR", op: string, msg: string) => Promise<void>;
+      fetchLogs: () => Promise<{ main: string; renderer: string; logsDir: string }>;
+      viewFolder: () => Promise<void>;
+      openWindow: () => Promise<void>;
+      onLogUpdate: (callback: (data: { fileType: "main" | "renderer"; line: string }) => void) => () => void;
+    };
   }
 }
 

@@ -16,12 +16,14 @@
 
 #include <windows.h>
 #include <wincred.h>
+#include <ncrypt.h>
 #include <lmcons.h>
 #include <vector>
 #include <string>
 
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "advapi32.lib")
+#pragma comment(lib, "ncrypt.lib")
 
 class CredentialWorker : public Napi::AsyncWorker
 {
@@ -36,7 +38,7 @@ public:
         credui.cbSize = sizeof(credui);
         credui.hwndParent = NULL;
         credui.pszMessageText = L"Please enter chunk password.";
-        credui.pszCaptionText = L"Anonymous File Storage";
+        credui.pszCaptionText = L"Bedrock Vault";
 
         ULONG authPackage = 0;
         LPVOID outAuthBuffer = NULL;
@@ -143,9 +145,124 @@ Napi::Value PromptPassword(const Napi::CallbackInfo &info)
     return deferred.Promise();
 }
 
+SECURITY_STATUS GetTpmKey(NCRYPT_KEY_HANDLE &hKey) {
+    NCRYPT_PROV_HANDLE hProv = 0;
+    SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_PLATFORM_KEY_STORAGE_PROVIDER, 0);
+    if (status != ERROR_SUCCESS) {
+        status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
+    }
+    if (status != ERROR_SUCCESS) return status;
+
+    status = NCryptOpenKey(hProv, &hKey, L"BedrockVaultTpmKey", 0, 0);
+    if (status == NTE_BAD_KEYSET) {
+        status = NCryptCreatePersistedKey(hProv, &hKey, BCRYPT_RSA_ALGORITHM, L"BedrockVaultTpmKey", 0, 0);
+        if (status == ERROR_SUCCESS) {
+            status = NCryptFinalizeKey(hKey, 0);
+        }
+    }
+    NCryptFreeObject(hProv);
+    return status;
+}
+
+Napi::Value IsTpmAvailable(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    NCRYPT_PROV_HANDLE hProv = 0;
+    SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_PLATFORM_KEY_STORAGE_PROVIDER, 0);
+    if (status == ERROR_SUCCESS) {
+        NCryptFreeObject(hProv);
+        return Napi::Boolean::New(env, true);
+    }
+    return Napi::Boolean::New(env, false);
+}
+
+Napi::Value IsSoftwareKspAvailable(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    NCRYPT_PROV_HANDLE hProv = 0;
+    SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
+    if (status == ERROR_SUCCESS) {
+        NCryptFreeObject(hProv);
+        return Napi::Boolean::New(env, true);
+    }
+    return Napi::Boolean::New(env, false);
+}
+
+Napi::Value TpmEncrypt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsBuffer()) {
+        Napi::TypeError::New(env, "Buffer expected").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
+
+    NCRYPT_KEY_HANDLE hKey = 0;
+    SECURITY_STATUS status = GetTpmKey(hKey);
+    if (status != ERROR_SUCCESS) {
+        Napi::Error::New(env, "Failed to initialize TPM key").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    DWORD cbResult = 0;
+    status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+    if (status != ERROR_SUCCESS) {
+        NCryptFreeObject(hKey);
+        Napi::Error::New(env, "TPM NCryptEncrypt size query failed").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::vector<BYTE> encrypted(cbResult);
+    status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, encrypted.data(), encrypted.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+    NCryptFreeObject(hKey);
+
+    if (status != ERROR_SUCCESS) {
+        Napi::Error::New(env, "TPM NCryptEncrypt failed").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    return Napi::Buffer<char>::Copy(env, reinterpret_cast<char*>(encrypted.data()), cbResult);
+}
+
+Napi::Value TpmDecrypt(const Napi::CallbackInfo &info) {
+    Napi::Env env = info.Env();
+    if (info.Length() < 1 || !info[0].IsBuffer()) {
+        Napi::TypeError::New(env, "Buffer expected").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+    Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
+
+    NCRYPT_KEY_HANDLE hKey = 0;
+    SECURITY_STATUS status = GetTpmKey(hKey);
+    if (status != ERROR_SUCCESS) {
+        Napi::Error::New(env, "Failed to initialize TPM key").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    DWORD cbResult = 0;
+    status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+    if (status != ERROR_SUCCESS) {
+        NCryptFreeObject(hKey);
+        Napi::Error::New(env, "TPM NCryptDecrypt size query failed").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    std::vector<BYTE> decrypted(cbResult);
+    status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, decrypted.data(), decrypted.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+    NCryptFreeObject(hKey);
+
+    if (status != ERROR_SUCCESS) {
+        Napi::Error::New(env, "TPM NCryptDecrypt failed").ThrowAsJavaScriptException();
+        return env.Null();
+    }
+
+    return Napi::Buffer<char>::Copy(env, reinterpret_cast<char*>(decrypted.data()), cbResult);
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set(Napi::String::New(env, "promptPassword"), Napi::Function::New(env, PromptPassword));
+    exports.Set(Napi::String::New(env, "tpmEncrypt"), Napi::Function::New(env, TpmEncrypt));
+    exports.Set(Napi::String::New(env, "tpmDecrypt"), Napi::Function::New(env, TpmDecrypt));
+    exports.Set(Napi::String::New(env, "isTpmAvailable"), Napi::Function::New(env, IsTpmAvailable));
+    exports.Set(Napi::String::New(env, "isSoftwareKspAvailable"), Napi::Function::New(env, IsSoftwareKspAvailable));
     return exports;
 }
 

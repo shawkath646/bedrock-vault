@@ -1,5 +1,4 @@
 import * as os from 'node:os';
-import si from 'systeminformation';
 import getDriveInfoFromPath from '@main/utils/getDriveInfoFromPath';
 import { formatSize } from '@shared/utils/formatSize';
 
@@ -32,11 +31,12 @@ export default async function checkSystemResources(
     }
 
     try {
-        const mem = await si.mem();
-        if (mem.available < MIN_FREE_MEMORY_BYTES) {
+        const { mem } = await import('systeminformation');
+        const memData = await mem();
+        if (memData.available < MIN_FREE_MEMORY_BYTES) {
             warnings.push({
                 field: 'memory',
-                message: `Low memory: only ${formatSize(mem.available)} free. Performance may be degraded.`,
+                message: `Low memory: only ${formatSize(memData.available)} free. Performance may be degraded.`,
             });
         }
     } catch { /* systeminformation unavailable — skip */ }

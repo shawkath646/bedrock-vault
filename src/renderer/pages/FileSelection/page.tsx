@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useForm, useWatch } from 'react-hook-form';
 import {
     File,
     ArrowLeft,
@@ -22,31 +23,59 @@ interface FileMetadata {
 
 export default function FileSelectionPage() {
     const navigate = useNavigate();
-
-    const [options, setOptions] = useState<FileSelectionOptions>(defaultOptions);
     const [fileState, setFileState] = useState<SelectedFile[]>([]);
     const [metadata, setMetadata] = useState<FileMetadata>({ fileCount: 0, totalSize: 0 });
+
+    const {
+        register,
+        control,
+        setError,
+        reset,
+        handleSubmit,
+        formState: { errors },
+    } = useForm<FileSelectionOptions>({
+        defaultValues: defaultOptions,
+    });
+
+    const options = useWatch({ control });
 
     useEffect(() => {
         let active = true;
 
         const loadSelectionState = async () => {
-            const state = await window.fileSelection.getState();
-            const rootFiles = await window.fileSelection.getCurrentPathFiles(null);
+            try {
+                const [state, rootFiles] = await Promise.all([
+                    window.fileSelection.getState(),
+                    window.fileSelection.getCurrentPathFiles(null)
+                ]);
 
-            if (!active) return;
+                if (!active) return;
 
-            setFileState(rootFiles);
-            setMetadata({ fileCount: state.fileCount, totalSize: state.totalSize });
-            setOptions(state.options);
+                setFileState(rootFiles);
+                setMetadata({ fileCount: state.fileCount, totalSize: state.totalSize });
+                reset(state.options);
+            } catch (err) {
+                console.error("Failed to load selection state:", err);
+            }
         };
 
         void loadSelectionState();
+        return () => { active = false; };
+    }, [reset]);
 
-        return () => {
-            active = false;
-        };
-    }, []);
+    const onSubmit = async (data: FileSelectionOptions) => {
+        const response = await window.fileSelection.saveOptions(data);
+        if (response.success) {
+            navigate('/encryption-options');
+        } else {
+            Object.entries(response.errors).forEach(([field, messages]) => {
+                setError(field as keyof FileSelectionOptions, {
+                    type: "server",
+                    message: messages.join(", "),
+                });
+            });
+        }
+    };
 
     return (
         <>
@@ -75,39 +104,43 @@ export default function FileSelectionPage() {
                 }
             />
 
-            <div className="mx-auto max-w-7xl px-6 mt-2">
-                <FileOptions options={options} setOptions={setOptions} />
-                <FileSelection files={fileState} setFiles={setFileState} setMetadata={setMetadata} options={options} />
-                <div className="flex items-center justify-between gap-4">
-                    {/* Stats */}
-                    <div className="flex items-center space-x-6 text-xs">
-                        <div className="flex items-center space-x-2">
-                            <FileText className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">Total Files:</span>
-                            <span className="font-semibold text-foreground">{metadata.fileCount}</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                            <HardDrive className="w-4 h-4 text-muted-foreground" />
-                            <span className="text-muted-foreground">Total Size:</span>
-                            <span className="font-semibold text-foreground">
-                                {formatSize(metadata.totalSize)}
-                            </span>
-                        </div>
-                    </div>
+            <div className="mx-auto max-w-7xl px-6 mt-2 space-y-4">
+                <FileOptions control={control} register={register} errors={errors} />
+                <FileSelection
+                    files={fileState}
+                    setFiles={setFileState}
+                    setMetadata={setMetadata}
+                    options={options as FileSelectionOptions || defaultOptions}
+                    hasFiles={!!metadata.fileCount}
+                />
 
-                    <Button
-                        size="lg"
-                        className="w-full sm:w-auto px-8"
-                        disabled={metadata.fileCount === 0}
-                        onClick={() => {
-                            void window.fileSelection.saveOptions(options)
-                            .then(() => navigate('/encryption-options'));
-                        }}
-                    >
-                        Next
-                        <ArrowRight className="w-5 h-5 mr-2" />
-                    </Button>
-                </div>
+                {metadata.fileCount > 0 && (
+                    <div className="flex items-center justify-between gap-4">
+                        <div className="flex items-center space-x-6 text-xs">
+                            <div className="flex items-center space-x-2">
+                                <FileText className="w-4 h-4 text-muted-foreground" />
+                                <span className="text-muted-foreground">Total Files:</span>
+                                <span className="font-semibold text-foreground">{metadata.fileCount}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <HardDrive className="w-4 h-4 text-muted-foreground" />
+                                <span className="text-muted-foreground">Total Size:</span>
+                                <span className="font-semibold text-foreground">
+                                    {formatSize(metadata.totalSize)}
+                                </span>
+                            </div>
+                        </div>
+
+                        <Button
+                            size="lg"
+                            className="w-full sm:w-auto px-8"
+                            onClick={handleSubmit(onSubmit)}
+                        >
+                            Next
+                            <ArrowRight className="w-5 h-5 mr-2" />
+                        </Button>
+                    </div>
+                )}
             </div>
         </>
     );

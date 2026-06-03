@@ -1,6 +1,6 @@
 import { app } from 'electron'
-import { createWindow, getMainWindow } from './windows/windowManager'
-import { registerIpcHandlers } from './ipc/handlers'
+import { createWindow, getMainWindow } from './window-manager'
+import { registerIpcHandlers } from './ipc-handler'
 import { initializeFileSelectionHandler } from './handlers/file-selection/file-selection.handler'
 import logger from './utils/logger'
 import metadata from '@shared/constant/metadata.json'
@@ -55,7 +55,6 @@ if (setupSingleInstanceLock()) {
     createWindow({
       devServerUrl: process.env.VITE_DEV_SERVER_URL
     })
-
   })
 
 }

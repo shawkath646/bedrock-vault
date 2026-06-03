@@ -4,12 +4,12 @@
  * Utility for the main process to push popup notifications to the renderer.
  * Usage from any main-process handler:
  *
- *   import { showPopup } from '@main/ipc/popup.emitter';
+ *   import { showPopup } from '@main/handlers/miscellaneous/popup.emitter';
  *   showPopup('error', 'Disk full!', true);
  */
 
 import { EventEmitter } from 'node:events';
-import type { PopupPayload, PopupType } from '@shared/types/popup';
+import type { PopupPayload, PopupType } from '@shared/types/global';
 
 export type { PopupPayload, PopupType };
 

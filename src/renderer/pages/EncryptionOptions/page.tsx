@@ -4,11 +4,8 @@ import { ArrowLeft, Settings } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import OptionsForm from "./OptionsForm";
 
-
-
 export default function EncryptionOptionsPage() {
     const navigate = useNavigate();
-
 
     return (
         <div className="flex h-full flex-col">

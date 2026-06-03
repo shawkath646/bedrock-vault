@@ -20,9 +20,6 @@ coverage/
 # Node-gyp / native build output
 build/
 
-# Native build artifacts
-src/native/build/
-
 # Editor directories and files
 .vscode
 !.vscode/extensions.json

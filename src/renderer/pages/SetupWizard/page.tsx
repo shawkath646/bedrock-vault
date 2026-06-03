@@ -10,7 +10,6 @@ import TitleBar from '@renderer/components/navigation/Titlebar';
 import Step0 from './Step0';
 import Step1 from './Step1';
 import Step2 from './Step2';
-import Footer from '@renderer/components/navigation/Footer';
 import { AppConfigContext } from '@renderer/contexts/AppConfigContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -94,7 +93,6 @@ export default function SetupWizardPage() {
                 </div>
 
                 {/* Footer - fixed navigation */}
-                <Footer />
                 <div className="shrink-0 border-t border-border/60 bg-background px-2 pt-3 pb-1">
                     <div className="flex items-center justify-between gap-2">
                         {step > 0 ? (

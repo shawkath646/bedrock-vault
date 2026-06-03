@@ -6,16 +6,16 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Transform } from 'node:stream';
 import { MessageChannel } from 'node:worker_threads';
-import Piscina from 'piscina';
 import type { EncryptionProgress } from '@shared/types/fileEncryption';
 import type { LockableFile } from '@shared/types/fileSelection';
-import type { FileKeyEntry } from '../encryption-key-backup';
+import type { FileKeyEntry } from '@shared/types/fileEncryption';
 import type EncryptionChangeJournal from './encryption-change-journal';
 import { emitFileProgress } from './encryption-emitter';
 import { fetchEncryptionOptions } from '../encryption-options.store';
 import { WORKER_PATH } from '@main/utils/paths';
 
 const INLINE_THRESHOLD_BYTES = 512 * 1024;
+const ENC_ALGORITHM = 'aes-256-gcm';
 
 interface EncryptionJobParams {
     sourceFilePath: string;
@@ -23,6 +23,11 @@ interface EncryptionJobParams {
     rawKeyHex: string;
     onProgress: (percent: number) => void;
     signal: AbortSignal;
+}
+
+interface EncryptionJobResult {
+    iv: Buffer;
+    authTag: Buffer;
 }
 
 interface EncryptFilesParams {
@@ -44,9 +49,10 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
     }
 
     const cpuConcurrency = Math.min(4, Math.max(1, Math.floor(os.cpus().length / 2)));
-    let pool: Piscina | null = null;
+    let pool: any = null;
 
     if (largeFiles.length > 0) {
+        const { default: Piscina } = await import('piscina');
         pool = new Piscina({
             filename: WORKER_PATH,
             maxThreads: cpuConcurrency,
@@ -63,11 +69,10 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
         if (signal.aborted) throw new Error('USER_ABORTED');
 
         const key = crypto.randomBytes(32);
-
-        const encryptedOutputPath = path.join(
-            outputDirectory,
-            encryptionOptions.encryptFileNameAndDirectory ? crypto.randomUUID() : file.name,
-        );
+        const encName = encryptionOptions.encryptFileNameAndDirectory
+            ? crypto.randomUUID()
+            : file.name;
+        const encryptedOutputPath = path.join(outputDirectory, encName);
 
         updateProgress(file.actualPath, { status: 'encrypting' });
 
@@ -80,14 +85,24 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
         };
 
         try {
-            const iv = file.size <= INLINE_THRESHOLD_BYTES
+            journal.recordCreated(encryptedOutputPath);
+            const result = file.size <= INLINE_THRESHOLD_BYTES
                 ? await inlineEncrypt(jobParams)
                 : await poolEncrypt(pool!, jobParams);
 
-            journal.recordCreated(encryptedOutputPath);
             updateProgress(file.actualPath, { progress: 100, status: 'completed' });
 
-            return { name: file.name, key, iv };
+            return {
+                name: file.name,
+                encName,
+                virtualPath: file.path,
+                key,
+                iv: result.iv,
+                enc_algorithm: ENC_ALGORITHM,
+                size: file.size,
+                ext: file.ext,
+                thumbnail: '',
+            };
         } catch (err) {
             key.fill(0);
             updateProgress(file.actualPath, { status: 'failed' });
@@ -100,19 +115,20 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
             runWithConcurrencyLimit(largeFiles.map(createTask), cpuConcurrency),
             runWithConcurrencyLimit(smallFiles.map(createTask), 50),
         ]);
+        emitFileProgress(progressMap, true);
         return [...largeResults, ...smallResults];
     } finally {
         await pool?.destroy();
     }
 }
 
-async function inlineEncrypt(params: EncryptionJobParams): Promise<Buffer> {
+async function inlineEncrypt(params: EncryptionJobParams): Promise<EncryptionJobResult> {
     const { sourceFilePath, encryptedOutputPath, rawKeyHex, onProgress, signal } = params;
     if (signal.aborted) throw new Error('USER_ABORTED');
 
     const encryptionKey = Buffer.from(rawKeyHex, 'hex');
-    const iv = crypto.randomBytes(16);
-    const cipher = crypto.createCipheriv('aes-256-cbc', encryptionKey, iv);
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv(ENC_ALGORITHM, encryptionKey, iv);
 
     const { size: totalBytes } = await fs.stat(sourceFilePath);
     const readStream = createReadStream(sourceFilePath);
@@ -136,9 +152,19 @@ async function inlineEncrypt(params: EncryptionJobParams): Promise<Buffer> {
         },
     });
 
+    let authTag: Buffer;
+
     try {
-        await pipeline(readStream, tracker, cipher, writeStream, { signal });
+        await pipeline(readStream, tracker, cipher, writeStream, { signal, end: false });
+        authTag = cipher.getAuthTag();
+        writeStream.write(authTag);
+        writeStream.end();
+        await new Promise<void>((resolve, reject) => {
+            writeStream.on('finish', resolve);
+            writeStream.on('error', reject);
+        });
     } catch (error: unknown) {
+        writeStream.destroy();
         if ((error as { name?: string }).name === 'AbortError' || signal.aborted) {
             throw new Error('USER_ABORTED', { cause: error });
         }
@@ -146,10 +172,10 @@ async function inlineEncrypt(params: EncryptionJobParams): Promise<Buffer> {
     }
 
     onProgress(100);
-    return iv;
+    return { iv, authTag };
 }
 
-async function poolEncrypt(pool: Piscina, params: EncryptionJobParams): Promise<Buffer> {
+async function poolEncrypt(pool: any, params: EncryptionJobParams): Promise<EncryptionJobResult> {
     const { sourceFilePath, encryptedOutputPath, rawKeyHex, onProgress, signal } = params;
     const { port1, port2 } = new MessageChannel();
 
@@ -158,11 +184,11 @@ async function poolEncrypt(pool: Piscina, params: EncryptionJobParams): Promise<
     });
 
     try {
-        const { ivHex } = await pool.run(
+        const { ivHex, authTagHex } = await pool.run(
             { sourceFilePath, encryptedOutputPath, rawKeyHex, port: port2 },
             { transferList: [port2], signal },
-        ) as { ivHex: string };
-        return Buffer.from(ivHex, 'hex');
+        ) as { ivHex: string; authTagHex: string };
+        return { iv: Buffer.from(ivHex, 'hex'), authTag: Buffer.from(authTagHex, 'hex') };
     } finally {
         port1.close();
     }

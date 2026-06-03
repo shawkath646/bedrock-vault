@@ -3,6 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import z from 'zod';
 import type { AppConfig } from '@shared/types/global';
+import logger from '../../utils/logger';
 
 const defaultAppConfig: AppConfig = {
     initialized: false,
@@ -25,17 +26,23 @@ async function ensureAppConfigDirectoryExists(): Promise<void> {
 export async function resetAppConfiguration(): Promise<AppConfig> {
     await ensureAppConfigDirectoryExists();
     await fs.writeFile(appConfigFilePath, JSON.stringify(defaultAppConfig, null, 2));
+    await logger.warn('AppConfig', 'App configuration has been reset to defaults');
     return defaultAppConfig;
 }
 
 export async function fetchAppConfiguration(): Promise<AppConfig> {
     try {
         const rawContent = await fs.readFile(appConfigFilePath, 'utf-8');
-        return AppConfigSchema.parse(JSON.parse(rawContent));
+        const parsed = AppConfigSchema.parse(JSON.parse(rawContent));
+        await logger.info('AppConfig', 'App configuration loaded successfully');
+        return parsed;
     } catch (error) {
         const nodeError = error as NodeJS.ErrnoException;
         if (nodeError.code !== 'ENOENT') {
             console.error('Failed to read or validate app config:', error);
+            await logger.error('AppConfig', `Failed to read or validate app config: ${error}`);
+        } else {
+            await logger.info('AppConfig', 'No existing config file found, using defaults');
         }
         return defaultAppConfig;
     }
@@ -52,6 +59,8 @@ export async function updateAppConfiguration(_event: IpcMainInvokeEvent, partial
 
     await ensureAppConfigDirectoryExists();
     await fs.writeFile(appConfigFilePath, JSON.stringify(validatedConfig, null, 2));
+
+    await logger.info('AppConfig', `App configuration updated: ${JSON.stringify(partialConfig)}`);
 
     return validatedConfig;
 }

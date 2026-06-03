@@ -12,3 +12,7 @@ export interface PopupPayload {
     /** If true the user must dismiss manually; if false it auto-closes after 4 s. */
     closable: boolean;
 }
+
+export type SaveResult<T> =
+    | { success: true; data: T }
+    | { success: false; errors: Record<string, string[]> };

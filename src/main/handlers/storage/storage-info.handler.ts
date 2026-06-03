@@ -16,7 +16,7 @@ export async function fetchStorageInfo(filePath: string): Promise<StorageInfo | 
     return {
         available: driveInfo.available,
         used: driveInfo.used,
-        total: driveInfo.blocks,
-        mounted: driveInfo.mounted,
+        total: driveInfo.size,
+        mounted: driveInfo.mount,
     };
 }

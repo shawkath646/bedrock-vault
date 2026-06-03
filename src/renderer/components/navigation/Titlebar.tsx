@@ -1,24 +1,22 @@
 import { useLocation } from 'react-router-dom';
-import { Minus, Square, X, Ellipsis, Code2 } from 'lucide-react';
+import { Minus, Square, X, Ellipsis, Code2, Info, Settings, RefreshCw, Logs } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Info } from 'lucide-react';
 import {
     DropdownMenu,
     DropdownMenuTrigger,
     DropdownMenuContent,
-    DropdownMenuLabel,
     DropdownMenuSeparator,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
     DropdownMenuGroup,
     DropdownMenuItem,
+    DropdownMenuSub,
+    DropdownMenuSubTrigger,
+    DropdownMenuPortal,
+    DropdownMenuSubContent,
 } from "@renderer/components/ui/dropdown-menu";
 import { Avatar, AvatarImage, AvatarFallback } from '@renderer/components/ui/avatar';
-import useTheme from '@renderer/lib/theme';
 
 export default function TitleBar({ component }: { component?: React.ReactElement }) {
 
-    const { theme, handleThemeChange } = useTheme();
     const location = useLocation();
     const navigate = useNavigate();
 
@@ -28,7 +26,7 @@ export default function TitleBar({ component }: { component?: React.ReactElement
                 {component}
             </div>
             <div className="flex items-center gap-2 disable-titlebar-drag self-start pt-1">
-                {location.pathname === "/setup" ? null : (
+                {location.pathname === "/setup" || location.pathname === "/encryption-progress" || location.pathname === "/logs" ? null : (
                     <DropdownMenu>
                         <DropdownMenuTrigger className="inline-flex items-center justify-center w-8.5 h-7 rounded-md bg-transparent border border-transparent text-foreground hover:bg-blue-500/20 transition-colors">
                             <Ellipsis className="w-4 h-4" />
@@ -54,40 +52,43 @@ export default function TitleBar({ component }: { component?: React.ReactElement
                             <DropdownMenuSeparator />
 
                             <DropdownMenuGroup>
-                                <DropdownMenuLabel className="text-xs text-muted-foreground px-3 py-1.5">
-                                    Theme
-                                </DropdownMenuLabel>
-
-                                <DropdownMenuRadioGroup value={theme} onValueChange={handleThemeChange}>
-                                    <DropdownMenuRadioItem value="system">
-                                        System
-                                    </DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="light">
-                                        Light
-                                    </DropdownMenuRadioItem>
-                                    <DropdownMenuRadioItem value="dark">
-                                        Dark
-                                    </DropdownMenuRadioItem>
-                                </DropdownMenuRadioGroup>
-                            </DropdownMenuGroup>
-
-                            <DropdownMenuSeparator />
-
-                            <DropdownMenuGroup>
-                                <DropdownMenuItem onClick={() => window.appWindow.openDevTools()}>
-                                    <Code2 className="w-4 h-4" />
-                                    <span>Developer Tools</span>
+                                <DropdownMenuItem onClick={() => navigate('/update')} className="cursor-pointer flex items-center gap-2">
+                                    <RefreshCw className="w-4 h-4" />
+                                    <span>Check for Updates</span>
                                 </DropdownMenuItem>
 
-                                <DropdownMenuItem
-                                    onClick={() => navigate('/about')}
-                                    className="cursor-pointer flex items-center gap-2"
-                                >
+                                <DropdownMenuItem onClick={() => navigate('/about')} className="cursor-pointer flex items-center gap-2">
                                     <Info className="w-4 h-4" />
                                     <span>About</span>
                                 </DropdownMenuItem>
-                            </DropdownMenuGroup>
 
+                                <DropdownMenuItem onClick={() => navigate('/settings')} className="cursor-pointer flex items-center gap-2">
+                                    <Settings className="w-4 h-4" />
+                                    <span>Settings</span>
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator />
+
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger className="cursor-pointer flex items-center gap-2">
+                                        <Code2 className="w-4 h-4" />
+                                        <span>Developer Options</span>
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuPortal>
+                                        <DropdownMenuSubContent>
+                                            <DropdownMenuItem onClick={() => window.appLogs.openWindow()} className="cursor-pointer flex items-center gap-2">
+                                                <Logs className="w-4 h-4" />
+                                                <span>Show Logs</span>
+                                            </DropdownMenuItem>
+                                            <DropdownMenuItem onClick={() => window.appWindow.openDevTools()} className="cursor-pointer flex items-center gap-2">
+                                                <Code2 className="w-4 h-4" />
+                                                <span>Developer Tools</span>
+                                            </DropdownMenuItem>
+                                        </DropdownMenuSubContent>
+                                    </DropdownMenuPortal>
+                                </DropdownMenuSub>
+
+                            </DropdownMenuGroup>
                         </DropdownMenuContent>
                     </DropdownMenu>
                 )}

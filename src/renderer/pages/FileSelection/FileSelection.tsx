@@ -1,6 +1,16 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@renderer/components/ui/button";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
+import logger from "../../lib/logger";
+import {
+    DialogRoot,
+    DialogPortal,
+    DialogBackdrop,
+    DialogPopup,
+    DialogTitle,
+    DialogDescription,
+    DialogClose,
+} from "@renderer/components/ui/dialog"
 import { formatSize } from "@renderer/lib/formatSize";
 import type { HandleFileOptions, SelectedFile } from "@shared/types/fileSelection";
 import type { FileSelectionOptions } from "@shared/types/fileSelection";
@@ -16,42 +26,44 @@ import {
 } from 'lucide-react';
 import GetFileIcon from "@/lib/getFileIcon";
 
+interface FileSelectionProps {
+    files: SelectedFile[];
+    setFiles: React.Dispatch<React.SetStateAction<SelectedFile[]>>;
+    setMetadata: React.Dispatch<React.SetStateAction<{ totalSize: number; fileCount: number }>>;
+    options: FileSelectionOptions;
+    hasFiles: boolean;
+}
 
 export default function FileSelection({
     files,
     setFiles,
     setMetadata,
-    options
-}: {
-    files: SelectedFile[];
-    setFiles: React.Dispatch<React.SetStateAction<SelectedFile[]>>;
-    setMetadata: React.Dispatch<React.SetStateAction<{ totalSize: number; fileCount: number }>>;
-    options: FileSelectionOptions;
-}) {
+    options,
+    hasFiles
+}: FileSelectionProps) {
     const [currentPath, setCurrentPath] = useState<string | null>(null);
     const [currentPathItems, setCurrentPathItems] = useState<SelectedFile[]>([]);
     const [isLoading, setIsLoading] = useState(false);
+    const [showCleanupDialog, setShowCleanupDialog] = useState(false);
 
     const getParentPath = (targetPath: string): string | null => {
         const normalized = targetPath.replace(/\/+$/, '');
-        if (normalized === '/') return null;
+        if (normalized === '' || normalized === '/') return null;
 
         const lastSlash = normalized.lastIndexOf('/');
-        if (lastSlash === 0) return null;
-
-        return normalized.substring(0, lastSlash);
+        return lastSlash <= 0 ? null : normalized.substring(0, lastSlash);
     };
 
-    const sortSelectedItems = (items: SelectedFile[]): SelectedFile[] => {
+    const sortSelectedItems = useCallback((items: SelectedFile[]): SelectedFile[] => {
         return [...items].sort((a, b) => {
             if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
             return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
         });
-    };
+    }, []);
 
     const visibleItems = useMemo(() => {
         return currentPath ? currentPathItems : sortSelectedItems(files);
-    }, [currentPath, currentPathItems, files]);
+    }, [currentPath, currentPathItems, files, sortSelectedItems]);
 
     const buildHandleOptions = useCallback((targetPath?: string): HandleFileOptions => ({
         currentPath: targetPath,
@@ -66,10 +78,12 @@ export default function FileSelection({
     }), [options]);
 
     const refreshFromBackend = useCallback(async () => {
-        const { fileCount, totalSize } = await window.fileSelection.getState();
-        const rootItems = await window.fileSelection.getCurrentPathFiles(null);
+        const [backendState, rootItems] = await Promise.all([
+            window.fileSelection.getState(),
+            window.fileSelection.getCurrentPathFiles(null)
+        ]);
 
-        setMetadata({ fileCount, totalSize });
+        setMetadata({ fileCount: backendState.fileCount, totalSize: backendState.totalSize });
         setFiles(sortSelectedItems(rootItems));
 
         if (currentPath) {
@@ -78,13 +92,12 @@ export default function FileSelection({
         } else {
             setCurrentPathItems([]);
         }
-    }, [currentPath, setFiles, setMetadata]);
+    }, [currentPath, setFiles, setMetadata, sortSelectedItems]);
 
     const yieldToPaint = () => new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
 
     const runWithLoading = useCallback(async <T,>(operation: () => Promise<T>): Promise<T> => {
         setIsLoading(true);
-
         try {
             await yieldToPaint();
             return await operation();
@@ -94,6 +107,7 @@ export default function FileSelection({
     }, []);
 
     const handleAddFiles = async () => {
+        void logger.info("FileSelection", "User clicked Add Files button");
         await runWithLoading(async () => {
             await window.fileSelection.addFiles(buildHandleOptions(currentPath ?? undefined));
             await refreshFromBackend();
@@ -101,6 +115,7 @@ export default function FileSelection({
     };
 
     const handleAddFolder = async () => {
+        void logger.info("FileSelection", "User clicked Add Folder button");
         await runWithLoading(async () => {
             await window.fileSelection.addFolder(buildHandleOptions(currentPath ?? undefined));
             await refreshFromBackend();
@@ -121,14 +136,12 @@ export default function FileSelection({
         await runWithLoading(async () => {
             const parentPath = getParentPath(currentPath);
 
-            // If parent is null, we're going back to root
             if (parentPath === null) {
                 setCurrentPath(null);
                 setCurrentPathItems([]);
                 return;
             }
 
-            // Fetch items from parent directory
             const items = await window.fileSelection.getCurrentPathFiles(parentPath);
             setCurrentPath(parentPath);
             setCurrentPathItems(sortSelectedItems(items));
@@ -136,11 +149,13 @@ export default function FileSelection({
     };
 
     const removeFile = async (file: SelectedFile) => {
+        void logger.info("FileSelection", `Removing item: ${file.path}`);
         await window.fileSelection.removeItem(file.path);
         await refreshFromBackend();
     };
 
     const clearFiles = async () => {
+        void logger.warn("FileSelection", "Clearing all selected items");
         await window.fileSelection.clearAll();
         await refreshFromBackend();
     };
@@ -152,31 +167,21 @@ export default function FileSelection({
 
                 <motion.p
                     key={currentPath}
-                    initial={{
-                        opacity: 0,
-                        width: 0,
-                        x: -10
-                    }}
-                    animate={{
-                        opacity: 1,
-                        width: "auto",
-                        x: 0
-                    }}
-                    transition={{
-                        duration: 0.2
-                    }}
+                    initial={{ opacity: 0, width: 0, x: -10 }}
+                    animate={{ opacity: 1, width: "auto", x: 0 }}
+                    transition={{ duration: 0.2 }}
                     className="text-muted-foreground text-xs overflow-hidden whitespace-nowrap text-ellipsis [direction:rtl]"
                 >
                     {currentPath || "[root]"}
                 </motion.p>
 
                 <div className="flex gap-2">
-                    {currentPath ? (
+                    {currentPath && (
                         <Button variant="outline" size="sm" onClick={() => void goBack()}>
                             <ArrowLeft className="w-4 h-4 mr-2" />
                             Go Back
                         </Button>
-                    ) : null}
+                    )}
                     <Button variant="outline" size="sm" onClick={() => void handleAddFiles()}>
                         <Plus className="w-4 h-4 mr-2" />
                         Add Files
@@ -185,32 +190,22 @@ export default function FileSelection({
                         <FolderPlus className="w-4 h-4 mr-2" />
                         Add Folder
                     </Button>
-                    <Button variant="outline" size="sm" onClick={() => void clearFiles()}>
-                        <Trash2 className="w-4 h-4 mr-2" />
-                        Cleanup
-                    </Button>
+                    {hasFiles && (
+                        <Button variant="outline" size="sm" onClick={() => setShowCleanupDialog(true)}>
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Cleanup
+                        </Button>
+                    )}
                 </div>
             </div>
 
-            {/* Dropzone / File List Area */}
-            <div className="relative flex-1 flex flex-col duration-200 h-90 mb-3">
+            <div className="relative flex-1 flex flex-col duration-200 h-94 mb-3">
                 {visibleItems.length === 0 && !isLoading ? (
-                    // Empty State
                     <div className="flex flex-col items-center justify-center flex-1 p-12 text-center h-full">
-                        <div className="bg-background p-4 rounded-full border shadow-sm mb-4">
-                            <UploadCloud className="w-8 h-8 text-muted-foreground" />
-                        </div>
-                        <h3 className="text-lg font-semibold mb-1">No files selected</h3>
-                        <p className="text-sm text-muted-foreground max-w-sm mb-6">
-                            Click the button below to browse your files for encrypt.
-                        </p>
-                        <div className="flex gap-2">
-                            <Button onClick={() => void handleAddFiles()}>Browse Files</Button>
-                            <Button variant="outline" onClick={() => void handleAddFolder()}>Browse Folders</Button>
-                        </div>
+                        <UploadCloud className="w-5 h-5 text-muted-foreground mb-2" />
+                        <h3 className="text-muted-foreground mb-1 text-sm">No files selected.</h3>
                     </div>
                 ) : (
-                    // Populated State
                     <ScrollArea className="h-full w-full rounded-md relative">
                         <div className="grid grid-cols-2 gap-2">
                             <AnimatePresence initial={false}>
@@ -255,15 +250,38 @@ export default function FileSelection({
                     </ScrollArea>
                 )}
 
-                {isLoading ? (
+                {isLoading && (
                     <div className="absolute inset-0 z-10 flex items-center justify-center rounded-md bg-background/70 backdrop-blur-[1px]">
                         <div className="flex items-center gap-2 rounded-full border bg-background px-4 py-2 text-sm text-muted-foreground shadow-sm">
                             <Loader2 className="h-4 w-4 animate-spin" />
                             Loading files...
                         </div>
                     </div>
-                ) : null}
+                )}
             </div>
+
+            <DialogRoot open={showCleanupDialog} onOpenChange={setShowCleanupDialog}>
+                <DialogPortal>
+                    <DialogBackdrop />
+                    <DialogPopup>
+                        <DialogTitle>Clear all files?</DialogTitle>
+                        <DialogDescription>
+                            This will remove all selected files from the list. This action cannot be undone.
+                        </DialogDescription>
+                        <div className="mt-5 flex justify-end gap-2">
+                            <DialogClose className="inline-flex items-center justify-center rounded-md border border-border bg-background px-4 py-1.5 text-xs font-medium text-foreground hover:bg-muted transition-colors cursor-pointer">
+                                Cancel
+                            </DialogClose>
+                            <DialogClose
+                                className="inline-flex items-center justify-center rounded-md bg-destructive px-4 py-1.5 text-xs font-medium text-destructive-foreground hover:bg-destructive/90 transition-colors cursor-pointer"
+                                onClick={() => void clearFiles()}
+                            >
+                                Clear All
+                            </DialogClose>
+                        </div>
+                    </DialogPopup>
+                </DialogPortal>
+            </DialogRoot>
         </div>
     );
 }

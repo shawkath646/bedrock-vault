@@ -1,5 +1,4 @@
 import * as fs from 'node:fs/promises';
-import lockFile from 'proper-lockfile';
 import type { SelectedFile, LockableFile } from "@shared/types/fileSelection";
 
 export async function acquireAndValidateFiles(
@@ -19,7 +18,8 @@ export async function acquireAndValidateFiles(
                     if (!file?.actualPath) throw new Error('Invalid file path');
                     const stat = await fs.stat(file.actualPath);
                     if (!stat.isFile()) throw new Error('Target is not a file');
-                    const release = await lockFile.lock(file.actualPath);
+                    const { lock } = await import('proper-lockfile');
+                    const release = await lock(file.actualPath);
                     lockedFiles.push({ ...file, release });
                     totalSize += file.size || stat.size;
                 } catch {
