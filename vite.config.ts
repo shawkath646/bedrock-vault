@@ -56,7 +56,11 @@ export default defineConfig({
 
     electron({
       main: {
-        entry: 'src/main/main.ts',
+        entry: {
+          main: 'src/main/main.ts',
+          'handlers/encryption/helpers/run-pool-job':
+            'src/main/handlers/encryption/helpers/run-pool-job.ts',
+        },
 
         vite: {
           resolve: { alias },
@@ -67,12 +71,6 @@ export default defineConfig({
             sourcemap: !isProd,
 
             rollupOptions: {
-              input: {
-                main: 'src/main/main.ts',
-                'handlers/encryption/helpers/run-pool-job':
-                  'src/main/handlers/encryption/helpers/run-pool-job.ts',
-              },
-
               treeshake: {
                 moduleSideEffects: false,
               },

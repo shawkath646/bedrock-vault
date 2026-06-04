@@ -6,7 +6,7 @@ import type {
 } from "@shared/types/fileSelection";
 
 import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from "@shared/types/fileEncryption";
-import type { AppConfig, SaveResult } from "@shared/types/global";
+import type { AppConfig, SaveResult, AppData } from "@shared/types/global";
 import type { PopupPayload } from "@shared/types/popup";
 import type { CloudStatus } from "@shared/types/cloudDrive";
 
@@ -20,6 +20,7 @@ declare global {
       getAppUpdateInfo: () => Promise<{ lastUpdate: string; currentVersion: string; latestVersion: string; updateUrl: string }>;
       openExternalUrl: (url: string) => Promise<void>;
       onPopupShow: (callback: (payload: PopupPayload) => void) => () => void;
+      getAppData: () => Promise<AppData>;
     };
 
     appConfig: {

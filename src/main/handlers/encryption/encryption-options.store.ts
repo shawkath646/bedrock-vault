@@ -23,7 +23,6 @@ function ensureIsFilePath(inputPath: string | undefined, defaultFileName: string
 }
 import type { EncryptionOptions } from '@shared/types/fileEncryption';
 import type { SaveResult } from '@shared/types/global';
-import appMetadata from "@shared/constant/metadata.json";
 import logger from '@main/utils/logger';
 import { isSoftwareKspAvailable, isTpmAvailable } from '@main/utils/tpm-communication';
 import { validatePath } from '@main/utils/paths';
@@ -32,7 +31,7 @@ const encryptionOptionsFilePath = path.join(app.getPath('userData'), 'encryption
 
 const getDefaultOptions = (): EncryptionOptions => {
     const chunkName = fetchAllSelectedItems().selectedOptions.chunkName;
-    const defaultPath = path.join(app.getPath("documents"), appMetadata.name, chunkName);
+    const defaultPath = path.join(app.getPath("documents"), app.getName(), chunkName);
 
     return {
         ...defaultOptions,

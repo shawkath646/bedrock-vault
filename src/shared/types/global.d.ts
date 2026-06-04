@@ -16,3 +16,17 @@ export interface PopupPayload {
 export type SaveResult<T> =
     | { success: true; data: T }
     | { success: false; errors: Record<string, string[]> };
+
+export interface AppData {
+    name: string;
+    version: string;
+    author: {
+        name: string;
+        url: string;
+    };
+    publishedBy: {
+        name: string;
+        url: string;
+        icon: string;
+    };
+}

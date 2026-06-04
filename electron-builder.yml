@@ -1,0 +1,97 @@
+appId: com.cloudburstlab.bedrockvault
+productName: Bedrock Vault
+copyright: Copyright © 2026 Shawkat Hossain Maruf
+
+# Reads name, version, description, author, homepage, repository, license from package.json
+
+directories:
+  output: release/${version}
+
+# Files to include in the packaged app
+files:
+  - dist/**/*
+  - node_modules/**/*
+  - package.json
+  - "!src"
+  - "!build"
+  - "!binding.gyp"
+  - "!tsconfig.json"
+  - "!eslint.config.js"
+  - "!components.json"
+  - "!vite.config.ts"
+  - "!.git"
+  - "!.vscode"
+  - "!.gitignore"
+  - "!package-lock.json"
+  - "!**/*.md"
+  - "!out"
+  - "!release"
+  - "!docs"
+  - "!installer"
+  - "!scripts"
+  - "!public"
+
+# Native addon must be unpacked from asar
+asar: true
+asarUnpack:
+  - dist/native/**/*
+
+# Apply Electron fuses after packaging
+afterPack: ./scripts/afterPack.cjs
+
+# --- Windows ---
+
+win:
+  icon: src/renderer/assets/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  perMachine: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Bedrock Vault
+  installerIcon: src/renderer/assets/icon.ico
+  uninstallerIcon: src/renderer/assets/icon.ico
+  installerHeaderIcon: src/renderer/assets/icon.ico
+  deleteAppDataOnUninstall: false
+  uninstallDisplayName: ${productName} ${version}
+  artifactName: ${productName}-Setup-${version}.${ext}
+  # include: installer/installer.nsh  # Uncomment when adding registry/context-menu entries
+
+# --- Linux ---
+
+linux:
+  icon: src/renderer/assets/icon.png
+  category: Utility
+  target:
+    - AppImage
+    - deb
+    - rpm
+  artifactName: ${productName}-${version}-${arch}.${ext}
+
+# --- macOS ---
+
+mac:
+  icon: src/renderer/assets/icon.icns
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - zip
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  identity: null  # Skip code signing
+
+dmg:
+  artifactName: ${productName}-${version}.${ext}
+
+# --- Publishing ---
+
+publish:
+  provider: github
+  owner: shawkath646
+  repo: bedrock-vault
+  releaseType: release

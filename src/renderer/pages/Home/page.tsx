@@ -1,14 +1,32 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 const LocalStorage = lazy(() => import('./Localstorage'));
 import CloudStorage from './CloudStorage';
 import MenuCard from './MenuCard';
-import appMetadata from "@shared/constant/metadata.json";
+import type { AppData } from "@shared/types/global";
 import TitleBar from '@renderer/components/navigation/Titlebar';
 import cloudBurstLabLogo from "@/assets/cloudburst_lab_logo_transparent.png";
-import appIcon from "@/assets/icon_1024x1024.png";
+import appIcon from "@/assets/icon.png";
 
 
 export default function HomePage() {
+    const [appData, setAppData] = useState<AppData>({
+        name: "Bedrock Vault",
+        version: "1.0.0",
+        author: { name: "Shawkat Hossain Maruf", url: "" },
+        publishedBy: { name: "Cloudburst Lab", url: "", icon: "" }
+    });
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const data = await window.appWindow.getAppData();
+                setAppData(data);
+            } catch (err) {
+                console.error("Failed to load app data:", err);
+            }
+        })();
+    }, []);
+
     return (
         <>
             <TitleBar />
@@ -19,13 +37,13 @@ export default function HomePage() {
                             src={appIcon}
                             height={38}
                             width={38}
-                            alt={appMetadata.publishedBy.name}
+                            alt={appData.publishedBy.name}
                             className="mt-2"
                         />
-                        <h1 className="text-3xl font-semibold tracking-tight text-foreground">{appMetadata.name}</h1>
+                        <h1 className="text-3xl font-semibold tracking-tight text-foreground">{appData.name}</h1>
                     </div>
                     <p className="max-w-2xl pl-13 text-sm leading-6 text-muted-foreground">
-                        Version {appMetadata.version}
+                        Version {appData.version}
                     </p>
                 </div>
                 <div className="mt-12 grid flex-1 grid-cols-1 gap-4 md:grid-cols-12 lg:gap-6">
@@ -56,7 +74,7 @@ export default function HomePage() {
                     src={cloudBurstLabLogo}
                     height={15}
                     width={50}
-                    alt={appMetadata.publishedBy.name}
+                    alt={appData.publishedBy.name}
                 />
             </footer>
         </>

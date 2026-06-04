@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('appWindow', {
   openPathWithSysApp: (path: string) => ipcRenderer.invoke('open-file-with-sys-app', path),
   getAppUpdateInfo: () => ipcRenderer.invoke('get-app-update-info'),
   openExternalUrl: (url: string) => ipcRenderer.invoke('open-external-url', url),
+  getAppData: () => ipcRenderer.invoke('get-app-data'),
   onPopupShow: (callback: (payload: PopupPayload) => void): (() => void) => {
     const listener = (_: Electron.IpcRendererEvent, payload: PopupPayload) => callback(payload)
     ipcRenderer.on('popup:show', listener)

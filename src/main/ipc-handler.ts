@@ -23,8 +23,8 @@ import { popupEmitter } from './handlers/miscellaneous/popup.emitter'
 import { encryptionEmitter } from "./handlers/encryption/helpers/encryption-emitter";
 import { getCloudStatus } from '@main/handlers/cloud-sync/status'
 import { isTpmAvailable, isSoftwareKspAvailable } from '@main/utils/tpm-communication'
-import { getAppUpdateInfo } from '@main/handlers/miscellaneous/app-update'
 import { openExternalUrl, openPathWithSysApp } from '@main/handlers/miscellaneous/shell-commands'
+import { getAppMetadata, getAppUpdateInfo } from './handlers/miscellaneous/miscellaneous'
 
 export function registerIpcHandlers(): void {
     // Window Management
@@ -41,6 +41,7 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('save-app-config', updateAppConfiguration)
     ipcMain.handle('get-app-update-info', getAppUpdateInfo)
     ipcMain.handle('get-cloud-status', getCloudStatus)
+    ipcMain.handle('get-app-data', getAppMetadata)
 
     // File Selection
     ipcMain.handle('get-selected-files-state', fetchSelectedFilesState)

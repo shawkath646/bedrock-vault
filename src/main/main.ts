@@ -3,7 +3,6 @@ import { createWindow, getMainWindow } from './window-manager'
 import { registerIpcHandlers } from './ipc-handler'
 import { initializeFileSelectionHandler } from './handlers/file-selection/file-selection.handler'
 import logger from './utils/logger'
-import metadata from '@shared/constant/metadata.json'
 
 function setupSingleInstanceLock(): boolean {
 
@@ -50,7 +49,7 @@ if (setupSingleInstanceLock()) {
     await logger.initialize();
     await initializeFileSelectionHandler()
 
-    await logger.info("APP_START", `version=${metadata.version}`);
+    await logger.info("APP_START", `version=${app.getVersion()}`);
 
     createWindow({
       devServerUrl: process.env.VITE_DEV_SERVER_URL

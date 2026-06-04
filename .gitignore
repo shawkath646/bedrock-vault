@@ -12,6 +12,8 @@ node_modules/
 dist/
 dist-electron/
 dist-ssr/
+out/
+release/
 coverage/
 .vite/
 *.tsbuildinfo
@@ -37,3 +39,4 @@ desktop.ini
 *.njsproj
 *.sln
 *.sw?
+

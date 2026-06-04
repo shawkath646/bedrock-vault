@@ -1,7 +1,26 @@
-import appMetadata from '@shared/constant/metadata.json';
+import { useEffect, useState } from 'react';
 import { Lock, Tag, User, ExternalLink } from 'lucide-react';
+import type { AppData } from '@shared/types/global';
 
 export default function Step0() {
+    const [appData, setAppData] = useState<AppData>({
+        name: "Bedrock Vault",
+        version: "1.0.0",
+        author: { name: "Shawkat Hossain Maruf", url: "https://shawkath646.pro" },
+        publishedBy: { name: "Cloudburst Lab", url: "https://cloudburstlab.vercel.app", icon: "" }
+    });
+
+    useEffect(() => {
+        (async () => {
+            try {
+                const data = await window.appWindow.getAppData();
+                setAppData(data);
+            } catch (err) {
+                console.error("Failed to load app data:", err);
+            }
+        })();
+    }, []);
+
     return (
         <div className="flex flex-col items-center justify-center h-full p-6">
             <div className="w-full max-w-2xl space-y-12">
@@ -16,7 +35,7 @@ export default function Step0() {
 
                     <div className="space-y-3">
                         <h1 className="text-2xl font-bold tracking-tight text-zinc-900 dark:text-zinc-50 sm:text-3xl">
-                            {appMetadata.name}
+                            {appData.name}
                         </h1>
                         <p className="max-w-md mx-auto text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
                             Let’s get everything configured in a few quick steps so the app is ready to use right away.
@@ -37,14 +56,14 @@ export default function Step0() {
                                 Version
                             </p>
                             <p className="mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100">
-                                {appMetadata.version}
+                                {appData.version}
                             </p>
                         </div>
                     </div>
 
                     {/* Author Card */}
                     <a 
-                        href={appMetadata.author.url}
+                        href={appData.author.url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="flex flex-col items-center p-5 space-y-3 text-center"
@@ -57,7 +76,7 @@ export default function Step0() {
                                 Author
                             </p>
                             <div className="flex items-center gap-1.5 mt-1 text-sm font-medium text-zinc-900 dark:text-zinc-100 group-hover:text-primary transition-colors">
-                                {appMetadata.author.name}
+                                {appData.author.name}
                                 <ExternalLink className="w-3.5 h-3.5 opacity-50 group-hover:opacity-100" />
                             </div>
                         </div>
