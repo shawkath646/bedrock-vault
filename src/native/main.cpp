@@ -25,18 +25,54 @@
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "ncrypt.lib")
 
+// --- 1. Helper Function Moved Up ---
+SECURITY_STATUS GetTpmKey(NCRYPT_KEY_HANDLE &hKey)
+{
+    NCRYPT_PROV_HANDLE hProv = 0;
+    SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_PLATFORM_KEY_STORAGE_PROVIDER, 0);
+    if (status != ERROR_SUCCESS)
+    {
+        status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
+    }
+    if (status != ERROR_SUCCESS)
+        return status;
+
+    status = NCryptOpenKey(hProv, &hKey, L"BedrockVaultTpmKey", 0, 0);
+    if (status == NTE_BAD_KEYSET)
+    {
+        status = NCryptCreatePersistedKey(hProv, &hKey, BCRYPT_RSA_ALGORITHM, L"BedrockVaultTpmKey", 0, 0);
+        if (status == ERROR_SUCCESS)
+        {
+            status = NCryptFinalizeKey(hKey, 0);
+            // FIX: Prevent memory leak if finalize fails
+            if (status != ERROR_SUCCESS)
+            {
+                NCryptFreeObject(hKey);
+                hKey = 0;
+            }
+        }
+    }
+    NCryptFreeObject(hProv);
+    return status;
+}
+
+// --- 2. Credential Worker ---
 class CredentialWorker : public Napi::AsyncWorker
 {
 public:
-    CredentialWorker(Napi::Env &env, Napi::Promise::Deferred &deferred)
-        : Napi::AsyncWorker(env), deferred(deferred) {}
+    CredentialWorker(Napi::Env &env, Napi::Promise::Deferred &deferred, HWND parentHwnd)
+        : Napi::AsyncWorker(env), deferred(deferred), parentHwnd(parentHwnd) {}
     ~CredentialWorker() {}
 
     void Execute() override
     {
         CREDUI_INFOW credui = {0};
         credui.cbSize = sizeof(credui);
+
+        // FIX: Force NULL parent HWND to prevent thread deadlocking
+        // across Node's Libuv thread and Electron's UI thread.
         credui.hwndParent = NULL;
+
         credui.pszMessageText = L"Please enter chunk password.";
         credui.pszCaptionText = L"Bedrock Vault";
 
@@ -117,8 +153,17 @@ public:
     void OnOK() override
     {
         Napi::Env env = Env();
+
+        // FIX: Prevent Integer Underflow Crash
+        if (passwordData.empty())
+        {
+            deferred.Resolve(Napi::Buffer<char>::New(env, 0));
+            return;
+        }
+
         Napi::Buffer<char> jsBuffer = Napi::Buffer<char>::Copy(env, passwordData.data(), passwordData.size() - 1);
 
+        // Security: Zero memory before freeing C++ side
         SecureZeroMemory(passwordData.data(), passwordData.size());
 
         deferred.Resolve(jsBuffer);
@@ -132,128 +177,186 @@ public:
 private:
     Napi::Promise::Deferred deferred;
     std::vector<char> passwordData;
+    HWND parentHwnd;
 };
+
+// --- 3. Async TPM Worker ---
+// FIX: Moved TPM operations to a background thread to prevent UI freezing
+class TpmCryptoWorker : public Napi::AsyncWorker
+{
+public:
+    TpmCryptoWorker(Napi::Env &env, Napi::Promise::Deferred &deferred, const std::vector<char> &inputData, bool isEncrypt)
+        : Napi::AsyncWorker(env), deferred(deferred), inputData(inputData), isEncrypt(isEncrypt) {}
+
+    void Execute() override
+    {
+        NCRYPT_KEY_HANDLE hKey = 0;
+        SECURITY_STATUS status = GetTpmKey(hKey);
+        if (status != ERROR_SUCCESS)
+        {
+            SetError("Failed to initialize TPM key");
+            return;
+        }
+
+        DWORD cbResult = 0;
+
+        // Size query
+        if (isEncrypt)
+        {
+            status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(const_cast<char *>(inputData.data())), inputData.size(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+        }
+        else
+        {
+            status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(const_cast<char *>(inputData.data())), inputData.size(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+        }
+
+        if (status != ERROR_SUCCESS)
+        {
+            NCryptFreeObject(hKey);
+            SetError(isEncrypt ? "TPM NCryptEncrypt size query failed" : "TPM NCryptDecrypt size query failed");
+            return;
+        }
+
+        resultData.resize(cbResult);
+
+        // Actual operation
+        if (isEncrypt)
+        {
+            status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(const_cast<char *>(inputData.data())), inputData.size(), NULL, resultData.data(), resultData.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+        }
+        else
+        {
+            status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(const_cast<char *>(inputData.data())), inputData.size(), NULL, resultData.data(), resultData.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
+        }
+
+        NCryptFreeObject(hKey);
+
+        if (status != ERROR_SUCCESS)
+        {
+            SetError(isEncrypt ? "TPM NCryptEncrypt failed" : "TPM NCryptDecrypt failed");
+            return;
+        }
+
+        resultData.resize(cbResult);
+    }
+
+    void OnOK() override
+    {
+        Napi::Env env = Env();
+        Napi::Buffer<char> jsBuffer = Napi::Buffer<char>::Copy(env, reinterpret_cast<char *>(resultData.data()), resultData.size());
+
+        // Zero memory if it was a decryption (assuming plaintext is sensitive)
+        if (!isEncrypt)
+        {
+            SecureZeroMemory(resultData.data(), resultData.size());
+        }
+
+        deferred.Resolve(jsBuffer);
+    }
+
+    void OnError(const Napi::Error &e) override
+    {
+        deferred.Reject(e.Value());
+    }
+
+private:
+    Napi::Promise::Deferred deferred;
+    std::vector<char> inputData;
+    std::vector<BYTE> resultData;
+    bool isEncrypt;
+};
+
+// --- JS Bindings ---
 
 Napi::Value PromptPassword(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
     Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-    CredentialWorker *worker = new CredentialWorker(env, deferred);
+    HWND parentHwnd = NULL;
+    if (info.Length() > 0 && info[0].IsBuffer())
+    {
+        Napi::Buffer<void *> buf = info[0].As<Napi::Buffer<void *>>();
+        if (buf.Length() >= sizeof(HWND))
+        {
+            parentHwnd = *reinterpret_cast<HWND *>(buf.Data());
+        }
+    }
+
+    CredentialWorker *worker = new CredentialWorker(env, deferred, parentHwnd);
     worker->Queue();
 
     return deferred.Promise();
 }
 
-SECURITY_STATUS GetTpmKey(NCRYPT_KEY_HANDLE &hKey) {
-    NCRYPT_PROV_HANDLE hProv = 0;
-    SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_PLATFORM_KEY_STORAGE_PROVIDER, 0);
-    if (status != ERROR_SUCCESS) {
-        status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
-    }
-    if (status != ERROR_SUCCESS) return status;
-
-    status = NCryptOpenKey(hProv, &hKey, L"BedrockVaultTpmKey", 0, 0);
-    if (status == NTE_BAD_KEYSET) {
-        status = NCryptCreatePersistedKey(hProv, &hKey, BCRYPT_RSA_ALGORITHM, L"BedrockVaultTpmKey", 0, 0);
-        if (status == ERROR_SUCCESS) {
-            status = NCryptFinalizeKey(hKey, 0);
-        }
-    }
-    NCryptFreeObject(hProv);
-    return status;
-}
-
-Napi::Value IsTpmAvailable(const Napi::CallbackInfo &info) {
+Napi::Value IsTpmAvailable(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
     NCRYPT_PROV_HANDLE hProv = 0;
     SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_PLATFORM_KEY_STORAGE_PROVIDER, 0);
-    if (status == ERROR_SUCCESS) {
+    if (status == ERROR_SUCCESS)
+    {
         NCryptFreeObject(hProv);
         return Napi::Boolean::New(env, true);
     }
     return Napi::Boolean::New(env, false);
 }
 
-Napi::Value IsSoftwareKspAvailable(const Napi::CallbackInfo &info) {
+Napi::Value IsSoftwareKspAvailable(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
     NCRYPT_PROV_HANDLE hProv = 0;
     SECURITY_STATUS status = NCryptOpenStorageProvider(&hProv, MS_KEY_STORAGE_PROVIDER, 0);
-    if (status == ERROR_SUCCESS) {
+    if (status == ERROR_SUCCESS)
+    {
         NCryptFreeObject(hProv);
         return Napi::Boolean::New(env, true);
     }
     return Napi::Boolean::New(env, false);
 }
 
-Napi::Value TpmEncrypt(const Napi::CallbackInfo &info) {
+Napi::Value TpmEncrypt(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
-    if (info.Length() < 1 || !info[0].IsBuffer()) {
+    if (info.Length() < 1 || !info[0].IsBuffer())
+    {
         Napi::TypeError::New(env, "Buffer expected").ThrowAsJavaScriptException();
         return env.Null();
     }
+
+    // Copy buffer data to hand off to background thread
     Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
+    std::vector<char> inputData(input.Data(), input.Data() + input.Length());
 
-    NCRYPT_KEY_HANDLE hKey = 0;
-    SECURITY_STATUS status = GetTpmKey(hKey);
-    if (status != ERROR_SUCCESS) {
-        Napi::Error::New(env, "Failed to initialize TPM key").ThrowAsJavaScriptException();
-        return env.Null();
-    }
+    Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-    DWORD cbResult = 0;
-    status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
-    if (status != ERROR_SUCCESS) {
-        NCryptFreeObject(hKey);
-        Napi::Error::New(env, "TPM NCryptEncrypt size query failed").ThrowAsJavaScriptException();
-        return env.Null();
-    }
+    // true = encrypt mode
+    TpmCryptoWorker *worker = new TpmCryptoWorker(env, deferred, inputData, true);
+    worker->Queue();
 
-    std::vector<BYTE> encrypted(cbResult);
-    status = NCryptEncrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, encrypted.data(), encrypted.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
-    NCryptFreeObject(hKey);
-
-    if (status != ERROR_SUCCESS) {
-        Napi::Error::New(env, "TPM NCryptEncrypt failed").ThrowAsJavaScriptException();
-        return env.Null();
-    }
-
-    return Napi::Buffer<char>::Copy(env, reinterpret_cast<char*>(encrypted.data()), cbResult);
+    return deferred.Promise();
 }
 
-Napi::Value TpmDecrypt(const Napi::CallbackInfo &info) {
+Napi::Value TpmDecrypt(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
-    if (info.Length() < 1 || !info[0].IsBuffer()) {
+    if (info.Length() < 1 || !info[0].IsBuffer())
+    {
         Napi::TypeError::New(env, "Buffer expected").ThrowAsJavaScriptException();
         return env.Null();
     }
+
+    // Copy buffer data to hand off to background thread
     Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
+    std::vector<char> inputData(input.Data(), input.Data() + input.Length());
 
-    NCRYPT_KEY_HANDLE hKey = 0;
-    SECURITY_STATUS status = GetTpmKey(hKey);
-    if (status != ERROR_SUCCESS) {
-        Napi::Error::New(env, "Failed to initialize TPM key").ThrowAsJavaScriptException();
-        return env.Null();
-    }
+    Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-    DWORD cbResult = 0;
-    status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, NULL, 0, &cbResult, NCRYPT_PAD_PKCS1_FLAG);
-    if (status != ERROR_SUCCESS) {
-        NCryptFreeObject(hKey);
-        Napi::Error::New(env, "TPM NCryptDecrypt size query failed").ThrowAsJavaScriptException();
-        return env.Null();
-    }
+    // false = decrypt mode
+    TpmCryptoWorker *worker = new TpmCryptoWorker(env, deferred, inputData, false);
+    worker->Queue();
 
-    std::vector<BYTE> decrypted(cbResult);
-    status = NCryptDecrypt(hKey, reinterpret_cast<PBYTE>(input.Data()), input.Length(), NULL, decrypted.data(), decrypted.size(), &cbResult, NCRYPT_PAD_PKCS1_FLAG);
-    NCryptFreeObject(hKey);
-
-    if (status != ERROR_SUCCESS) {
-        Napi::Error::New(env, "TPM NCryptDecrypt failed").ThrowAsJavaScriptException();
-        return env.Null();
-    }
-
-    return Napi::Buffer<char>::Copy(env, reinterpret_cast<char*>(decrypted.data()), cbResult);
+    return deferred.Promise();
 }
 
 Napi::Object Init(Napi::Env env, Napi::Object exports)

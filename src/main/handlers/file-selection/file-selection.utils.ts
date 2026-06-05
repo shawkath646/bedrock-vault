@@ -1,6 +1,6 @@
 import path from 'node:path';
 import z from 'zod';
-import { defaultOptions as defaultFileSelectionOptions } from '@shared/constant/fileSelection';
+import { defaultOptions as defaultFileSelectionOptions } from '@shared/constant/file-selection.constants';
 import type {
     FileSelectionOptions,
     HandleFileOptions,
@@ -25,8 +25,7 @@ const SelectedFileSchema: z.ZodType<SelectedFile> = z.object({
 });
 
 export const FileSelectionOptionsSchema: z.ZodType<FileSelectionOptions> = z.object({
-    newChunk: z.boolean(),
-    chunkName: z.string(),
+    chunkName: z.string().min(1, { message: "Chunk name is required" }),
     includeSubFolders: z.boolean(),
     maxSize: z.number().min(0, { message: "Max size must be a non-negative number" }),
     documents: z.boolean(),
@@ -35,9 +34,6 @@ export const FileSelectionOptionsSchema: z.ZodType<FileSelectionOptions> = z.obj
     pictures: z.boolean(),
     programs: z.boolean(),
     others: z.boolean(),
-}).refine(data => !data.newChunk || data.chunkName.trim().length > 0, {
-    message: "Chunk name is required when creating a new chunk",
-    path: ["chunkName"],
 });
 
 const PersistedSelectionStateSchema = z.object({

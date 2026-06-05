@@ -1,7 +1,7 @@
 import { app, dialog, type IpcMainInvokeEvent } from 'electron';
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { defaultOptions as defaultFileSelectionOptions } from '@shared/constant/fileSelection';
+import { defaultOptions as defaultFileSelectionOptions } from '@shared/constant/file-selection.constants';
 import type {
     FileSelectionOptions,
     HandleFileOptions,

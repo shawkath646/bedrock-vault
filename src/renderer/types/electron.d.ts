@@ -5,10 +5,24 @@ import type {
   SelectedFilesState,
 } from "@shared/types/fileSelection";
 
-import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from "@shared/types/fileEncryption";
+import type { EncryptionOptions, EncryptionProgress, EncryptionStage, EncryptionRecord } from "@shared/types/fileEncryption";
 import type { AppConfig, SaveResult, AppData } from "@shared/types/global";
 import type { PopupPayload } from "@shared/types/popup";
 import type { CloudStatus } from "@shared/types/cloudDrive";
+
+export interface DecryptedFileEntry {
+  name: string;
+  encName: string;
+  virtualPath: string;
+  size: number;
+  ext: string;
+  thumbnail: string;
+  isAvailable: boolean;
+}
+
+export type DecryptionResult = 
+  | { success: true; files: DecryptedFileEntry[]; chunkName: string }
+  | { success: false; error: string; level?: number };
 
 declare global {
   interface Window {
@@ -89,6 +103,11 @@ declare global {
       viewFolder: () => Promise<void>;
       openWindow: () => Promise<void>;
       onLogUpdate: (callback: (data: { fileType: "main" | "renderer"; line: string }) => void) => () => void;
+    };
+
+    decryptFiles: {
+      getRecords: () => Promise<EncryptionRecord[]>;
+      encryptedDirectorySelect: (directoryPath?: string) => Promise<DecryptionResult>;
     };
   }
 }

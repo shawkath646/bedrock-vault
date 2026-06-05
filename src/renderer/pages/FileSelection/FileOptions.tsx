@@ -1,15 +1,6 @@
 import { Input } from "@renderer/components/ui/input";
 import { Switch } from "@renderer/components/ui/switch";
-import {
-    Select,
-    SelectContent,
-    SelectGroup,
-    SelectItem,
-    SelectLabel,
-    SelectTrigger,
-    SelectValue,
-} from "@renderer/components/ui/select";
-import { Controller, useWatch } from "react-hook-form";
+import { Controller } from "react-hook-form";
 import type { Control, UseFormRegister, FieldErrors } from "react-hook-form";
 import type { FileSelectionOptions } from "@shared/types/fileSelection";
 import { Field, FieldLabel, FieldError } from "@renderer/components/ui/field";
@@ -30,11 +21,25 @@ const FILE_TYPE_OPTIONS = [
 ] as const;
 
 export default function FileOptions({ control, register, errors }: FileOptionsProps) {
-    const newChunk = useWatch({ control, name: "newChunk" });
-
     return (
         <div className="flex gap-8 items-start w-full">
-            <div className="w-80 shrink-0 space-y-4">
+            <div className="w-80 shrink-0 space-y-2">
+                {/* Chunk Name Block */}
+                <div className="h-16">
+                    <Field aria-invalid={!!errors.chunkName}>
+                        <FieldLabel htmlFor="chunk-name">
+                            Chunk Name
+                        </FieldLabel>
+                        <Input
+                            id="chunk-name"
+                            {...register("chunkName")}
+                            placeholder="e.g. MyBackupChunk"
+                            className="h-8 text-xs bg-muted/40 border-none"
+                        />
+                        <FieldError errors={[errors.chunkName]} />
+                    </Field>
+                </div>
+
                 <Field orientation="horizontal">
                     <FieldLabel htmlFor="include-subfolders">
                         Include Subfolders
@@ -51,61 +56,6 @@ export default function FileOptions({ control, register, errors }: FileOptionsPr
                         )}
                     />
                 </Field>
-
-                <Field orientation="horizontal" aria-disabled>
-                    <FieldLabel htmlFor="new-chunk" className="text-muted-foreground">New Chunk</FieldLabel>
-                    <Controller
-                        control={control}
-                        name="newChunk"
-                        render={({ field }) => (
-                            <Switch
-                                id="new-chunk"
-                                disabled
-                                checked={Boolean(field.value)}
-                                onCheckedChange={field.onChange}
-                            />
-                        )}
-                    />
-                </Field>
-
-                {/* Dynamic Chunk Context Block */}
-                <div className="h-16">
-                    {newChunk ? (
-                        <Field aria-invalid={!!errors.chunkName}>
-                            <FieldLabel htmlFor="chunk-name">
-                                Chunk Name
-                            </FieldLabel>
-                            <Input
-                                id="chunk-name"
-                                {...register("chunkName")}
-                                placeholder="e.g. MyBackupChunk"
-                                className="h-8 text-xs bg-muted/40 border-none"
-                            />
-                            <FieldError errors={[errors.chunkName]} />
-                        </Field>
-                    ) : (
-                        <Field>
-                            <FieldLabel htmlFor="select-chunk">
-                                Select Chunk
-                            </FieldLabel>
-                            <Select id="select-chunk">
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Select a fruit" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectGroup>
-                                        <SelectLabel>Fruits</SelectLabel>
-                                        <SelectItem value="apple">Apple</SelectItem>
-                                        <SelectItem value="banana">Banana</SelectItem>
-                                        <SelectItem value="blueberry">Blueberry</SelectItem>
-                                        <SelectItem value="grapes">Grapes</SelectItem>
-                                        <SelectItem value="pineapple">Pineapple</SelectItem>
-                                    </SelectGroup>
-                                </SelectContent>
-                            </Select>
-                        </Field>
-                    )}
-                </div>
             </div>
 
             <div className="flex-1 flex gap-8 items-end p-2">

@@ -9,7 +9,8 @@ import {
     updateEncryptionOptions,
     selectFileKeySavePath,
 } from './handlers/encryption/encryption-options.store'
-import { abortEncryption, handleStartEncryptionWorkflow, setEncryptionPassword, hasEncryptionPassword, clearCachedPassword } from './handlers/encryption/encryption-workflow.handler'
+import { abortEncryption, setEncryptionPassword, hasEncryptionPassword, clearCachedPassword } from './handlers/encryption/helpers/abort-controller.helper'
+import { handleStartEncryptionWorkflow } from './handlers/encryption/encryption-workflow.main'
 import {
     clearSelectedItems,
     fetchCurrentPathSelectedFiles,
@@ -20,11 +21,15 @@ import {
     updateFileSelectionOptions,
 } from './handlers/file-selection/file-selection.handler'
 import { popupEmitter } from './handlers/miscellaneous/popup.emitter'
-import { encryptionEmitter } from "./handlers/encryption/helpers/encryption-emitter";
+import { encryptionEmitter } from "./handlers/encryption/helpers/encryption-emitter.helper";
 import { getCloudStatus } from '@main/handlers/cloud-sync/status'
-import { isTpmAvailable, isSoftwareKspAvailable } from '@main/utils/tpm-communication'
+import { isTpmAvailable, isSoftwareKspAvailable } from '@main/utils/native-crypto'
 import { openExternalUrl, openPathWithSysApp } from '@main/handlers/miscellaneous/shell-commands'
 import { getAppMetadata, getAppUpdateInfo } from './handlers/miscellaneous/miscellaneous'
+import { getRecords } from './utils/misc.utils'
+import { handleEncryptedDirectorySelect } from './handlers/decryption/decryption-workflow.main'
+
+
 
 export function registerIpcHandlers(): void {
     // Window Management
@@ -67,6 +72,10 @@ export function registerIpcHandlers(): void {
     // Encryption Workflow
     ipcMain.handle('start-encryption-flow', handleStartEncryptionWorkflow)
     ipcMain.handle('abort-encryption-flow', abortEncryption)
+
+    // Decryption Workflow
+    ipcMain.handle('decrypt-files:get-records', getRecords)
+    ipcMain.handle('decrypt-files:encrypted-directory-select', handleEncryptedDirectorySelect)
 
     // Logging & Tools (Fixed the serialization bug here)
     ipcMain.handle('app-log', logRenderer)

@@ -78,3 +78,8 @@ contextBridge.exposeInMainWorld('appLogs', {
     return () => ipcRenderer.removeListener('log-updated', listener)
   }
 })
+
+contextBridge.exposeInMainWorld('decryptFiles', {
+  getRecords: () => ipcRenderer.invoke('decrypt-files:get-records'),
+  encryptedDirectorySelect: (directoryPath?: string) => ipcRenderer.invoke('decrypt-files:encrypted-directory-select', directoryPath)
+})

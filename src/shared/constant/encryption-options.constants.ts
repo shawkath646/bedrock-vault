@@ -8,7 +8,8 @@ export const defaultOptions: EncryptionOptions = {
     encryptFileNameAndDirectory: true,
     fileOutputDirectory: "",
     recoveryPhrasePath: "",
-    recoveryPhraseFilePath: ""
+    recoveryPhraseFilePath: "",
+    addToRecordTable: true
 }
 
 export const encryptionLevels = [

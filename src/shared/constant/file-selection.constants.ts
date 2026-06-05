@@ -1,7 +1,6 @@
 import type { FileSelectionOptions } from "@shared/types/fileSelection";
 
 export const defaultOptions: FileSelectionOptions = {
-    newChunk: true,
     chunkName: "",
     includeSubFolders: true,
     maxSize: 0,

@@ -1,6 +1,6 @@
 appId: com.cloudburstlab.bedrockvault
 productName: Bedrock Vault
-copyright: Copyright © 2026 Shawkat Hossain Maruf
+copyright: Copyright © 2026 CloudBurst Lab
 
 # Reads name, version, description, author, homepage, repository, license from package.json
 
@@ -56,9 +56,8 @@ nsis:
   createStartMenuShortcut: true
   shortcutName: Bedrock Vault
   installerIcon: src/renderer/assets/icon.ico
-  uninstallerIcon: src/renderer/assets/icon.ico
   installerHeaderIcon: src/renderer/assets/icon.ico
-  deleteAppDataOnUninstall: false
+  deleteAppDataOnUninstall: true
   uninstallDisplayName: ${productName} ${version}
   artifactName: ${productName}-Setup-${version}.${ext}
   # include: installer/installer.nsh  # Uncomment when adding registry/context-menu entries

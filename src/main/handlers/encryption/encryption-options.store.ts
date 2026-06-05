@@ -1,33 +1,21 @@
 import { type IpcMainInvokeEvent, app, dialog } from 'electron';
 import fs from 'node:fs/promises';
-import fsSync from 'node:fs';
 import path from 'node:path';
 import z from 'zod';
 import { fetchAllSelectedItems } from "@main/handlers/file-selection/file-selection.handler"
-import { defaultOptions } from '@shared/constant/encryptionOptions';
-
-function ensureIsFilePath(inputPath: string | undefined, defaultFileName: string): string | undefined {
-    if (!inputPath) return inputPath;
-    
-    try {
-        const stats = fsSync.statSync(inputPath);
-        if (stats.isDirectory()) {
-            return path.join(inputPath, defaultFileName);
-        }
-    } catch {
-        if (inputPath.endsWith('/') || inputPath.endsWith('\\') || !path.extname(inputPath)) {
-            return path.join(inputPath, defaultFileName);
-        }
-    }
-    return inputPath;
-}
+import { defaultOptions } from '@shared/constant/encryption-options.constants';
 import type { EncryptionOptions } from '@shared/types/fileEncryption';
 import type { SaveResult } from '@shared/types/global';
 import logger from '@main/utils/logger';
-import { isSoftwareKspAvailable, isTpmAvailable } from '@main/utils/tpm-communication';
-import { validatePath } from '@main/utils/paths';
+import { isSoftwareKspAvailable, isTpmAvailable } from '@main/utils/native-crypto';
+import { validatePath, ensureIsFilePath } from '@main/utils/path.utils';
+import {
+  DEFAULT_RECOVERY_PHRASE_FILENAME,
+  DEFAULT_KEY_FILENAME,
+  PREFERENCES_FILENAME
+} from '@main/constant/file.constants';
 
-const encryptionOptionsFilePath = path.join(app.getPath('userData'), 'encryption_preferences.json');
+const encryptionOptionsFilePath = path.join(app.getPath('userData'), PREFERENCES_FILENAME);
 
 const getDefaultOptions = (): EncryptionOptions => {
     const chunkName = fetchAllSelectedItems().selectedOptions.chunkName;
@@ -37,8 +25,9 @@ const getDefaultOptions = (): EncryptionOptions => {
         ...defaultOptions,
         encryptionLevel: (isTpmAvailable() || isSoftwareKspAvailable()) ? 3 : 1,
         fileOutputDirectory: defaultPath,
-        recoveryPhrasePath: path.join(defaultPath, "recovery_phrase.txt"),
-        recoveryPhraseFilePath: path.join(defaultPath, "key_file")
+        recoveryPhrasePath: path.join(defaultPath, DEFAULT_RECOVERY_PHRASE_FILENAME),
+        recoveryPhraseFilePath: path.join(defaultPath, DEFAULT_KEY_FILENAME),
+        addToRecordTable: true
     }
 };
 
@@ -55,6 +44,7 @@ const EncryptionOptionsSchema: z.ZodType<EncryptionOptions> = z.object({
     addToCloudSync: z.boolean(),
     addTrap: z.boolean(),
     cleanupAfterEncryption: z.boolean(),
+    addToRecordTable: z.boolean(),
 });
 
 async function ensureEncryptionOptionsDirectoryExists(): Promise<void> {
@@ -77,7 +67,7 @@ export async function selectEncryptionOutputDirectory(): Promise<string | null> 
 
 export async function selectRecoveryPhraseSavePath(): Promise<string | null> {
     const { canceled, filePath } = await dialog.showSaveDialog({
-        defaultPath: 'recovery_phrase.txt',
+        defaultPath: DEFAULT_RECOVERY_PHRASE_FILENAME,
         filters: [{ name: 'Recovery Phrase Text File', extensions: ['txt'] }],
     });
 
@@ -90,23 +80,9 @@ export async function selectRecoveryPhraseSavePath(): Promise<string | null> {
     return filePath;
 }
 
-export async function selectRecoveryPhraseFilePath(): Promise<string | null> {
-    const { canceled, filePath } = await dialog.showSaveDialog({
-        defaultPath: 'key_file',
-    });
-
-    if (canceled || !filePath) {
-        await logger.info('EncryptionOptions', 'Recovery phrase key file path selection cancelled');
-        return null;
-    }
-
-    await logger.info('EncryptionOptions', `Recovery phrase key file path selected: ${filePath}`);
-    return filePath;
-}
-
 export async function selectFileKeySavePath(): Promise<string | null> {
     const { canceled, filePath } = await dialog.showSaveDialog({
-        defaultPath: 'file_key',
+        defaultPath: DEFAULT_KEY_FILENAME,
     });
 
     if (canceled || !filePath) {
@@ -150,10 +126,10 @@ export async function updateEncryptionOptions(
         };
 
         if (mergedOptions.recoveryPhrasePath) {
-            mergedOptions.recoveryPhrasePath = ensureIsFilePath(mergedOptions.recoveryPhrasePath, "recovery_phrase.txt")!;
+            mergedOptions.recoveryPhrasePath = ensureIsFilePath(mergedOptions.recoveryPhrasePath, DEFAULT_RECOVERY_PHRASE_FILENAME)!;
         }
         if (mergedOptions.recoveryPhraseFilePath) {
-            mergedOptions.recoveryPhraseFilePath = ensureIsFilePath(mergedOptions.recoveryPhraseFilePath, "key_file")!;
+            mergedOptions.recoveryPhraseFilePath = ensureIsFilePath(mergedOptions.recoveryPhraseFilePath, DEFAULT_KEY_FILENAME)!;
         }
 
         const validatedOptions = EncryptionOptionsSchema.parse(mergedOptions);

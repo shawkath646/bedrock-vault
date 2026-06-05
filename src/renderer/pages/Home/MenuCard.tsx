@@ -36,14 +36,14 @@ const menuItems: MenuItem[] = [
     {
         id: 'vault',
         icon: FolderKey,
-        title: 'Open Vault',
+        title: 'Decrypt Files',
         description: 'Access and manage your decrypted data.',
-        path: '/vault',
+        path: '/encryption-record',
         iconBgColor: 'bg-emerald-500/10',
         iconTextColor: 'text-emerald-600 dark:text-emerald-400',
         hoverBgColor: 'group-hover:bg-emerald-600',
         hoverTextColor: 'group-hover:text-white',
-        disabled: true
+        disabled: false
     },
     {
         id: 'history',

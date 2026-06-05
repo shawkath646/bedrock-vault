@@ -1,4 +1,4 @@
-import getDriveInfoFromPath from '@main/utils/getDriveInfoFromPath';
+import { getDriveInfoFromPath } from '@main/utils/misc.utils';
 
 export interface StorageInfo {
     available: number;

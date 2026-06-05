@@ -7,7 +7,7 @@ import { Button } from "@renderer/components/ui/button";
 import { CircleQuestionMark, FolderOpen, Shield, AlertTriangle } from "lucide-react";
 import type { EncryptionOptions } from "@shared/types/fileEncryption";
 import { useNavigate } from "react-router-dom";
-import { defaultOptions, encryptionLevels } from "@shared/constant/encryptionOptions";
+import { defaultOptions, encryptionLevels } from "@shared/constant/encryption-options.constants";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Field, FieldLabel, FieldError } from "@renderer/components/ui/field";
@@ -16,7 +16,8 @@ const SECURITY_SWITCHES = [
     { id: "encryptFileNameAndDirectory", label: "Encrypt File Name & Directory", disabled: false },
     { id: "addTrap", label: "Add Trap", disabled: true },
     { id: "addToCloudSync", label: "Add to Cloud Sync", disabled: true },
-    { id: "cleanupAfterEncryption", label: "Cleanup After Encryption", disabled: false }
+    { id: "cleanupAfterEncryption", label: "Cleanup After Encryption", disabled: false },
+    { id: "addToRecordTable", label: "Add to record table", disabled: false }
 ] as const;
 
 export default function OptionsForm() {
@@ -250,7 +251,7 @@ export default function OptionsForm() {
                     <section className="space-y-4">
                         <h3 className="text-sm font-medium text-foreground">Security Options</h3>
 
-                        <div className="space-y-2">
+                        <div className="space-y-2 max-h-70 overflow-y-scroll">
                             {/* Password Setup Element */}
                             <div className="rounded-lg border border-border/70 bg-muted/20 px-4 py-2 space-y-3">
                                 <div className="flex items-center justify-between">

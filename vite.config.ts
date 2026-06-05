@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 import electron from 'vite-plugin-electron/simple'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath, URL } from 'node:url'
+import { notBundle } from 'vite-plugin-electron/plugin'
+
 
 const isProd = process.env.NODE_ENV === 'production'
 
@@ -58,12 +60,13 @@ export default defineConfig({
       main: {
         entry: {
           main: 'src/main/main.ts',
-          'handlers/encryption/helpers/run-pool-job':
+          'run-pool-job':
             'src/main/handlers/encryption/helpers/run-pool-job.ts',
         },
 
         vite: {
           resolve: { alias },
+          plugins: [notBundle()],
 
           build: {
             outDir: 'dist/main',
@@ -75,12 +78,19 @@ export default defineConfig({
                 moduleSideEffects: false,
               },
 
-              external: [
-                ...nodeBuiltins,
-                'systeminformation',
-                'piscina',
-              ],
+              external: (id) => {
+                if (nodeBuiltins.includes(id) || id.startsWith('node:')) {
+                  return true;
+                }
+                if (/^(piscina|systeminformation)(\/|$)/.test(id) || id.includes('node_modules/piscina') || id.includes('node_modules/systeminformation')) {
+                  return true;
+                }
+                return false;
+              },
             },
+          },
+          ssr: {
+            external: ['piscina', 'systeminformation'],
           },
         },
       },
@@ -90,6 +100,7 @@ export default defineConfig({
 
         vite: {
           resolve: { alias },
+          plugins: [notBundle()],
 
           build: {
             outDir: 'dist/preload',

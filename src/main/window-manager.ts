@@ -1,5 +1,5 @@
 import { BrowserWindow } from 'electron'
-import { getPreloadPath, getDistPath, getIconPath } from './utils/paths'
+import { getAppAssetPath } from './utils/path.utils'
 import logger from './utils/logger'
 
 
@@ -25,9 +25,9 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
         width: 1000,
         height: 700,
         frame: false,
-        icon: getIconPath(),
+        icon: getAppAssetPath('icon'),
         webPreferences: {
-            preload: getPreloadPath()
+            preload: getAppAssetPath('preload')
         },
         fullscreenable: false,
         resizable: false
@@ -51,7 +51,7 @@ export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
     if (options.devServerUrl) {
         void mainWindow.loadURL(options.devServerUrl)
     } else {
-        void mainWindow.loadFile(getDistPath())
+        void mainWindow.loadFile(getAppAssetPath('dist'))
     }
 
     return mainWindow
@@ -73,7 +73,7 @@ export function createLogsWindow(): BrowserWindow {
         title: 'System Logs',
         frame: false,
         webPreferences: {
-            preload: getPreloadPath()
+            preload: getAppAssetPath('preload')
         },
         resizable: true
     })
@@ -92,7 +92,7 @@ export function createLogsWindow(): BrowserWindow {
     if (logUrl) {
         void logsWindow.loadURL(`${logUrl}#/logs`)
     } else {
-        void logsWindow.loadFile(getDistPath(), { hash: '/logs' })
+        void logsWindow.loadFile(getAppAssetPath('dist'), { hash: '/logs' })
     }
 
     return logsWindow;

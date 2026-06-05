@@ -19,6 +19,8 @@ const AboutPage = lazy(() => import('./pages/About/page'));
 const UpdatePage = lazy(() => import('./pages/Update/page'));
 const SettingsPage = lazy(() => import('./pages/Settings/page'));
 const LogPage = lazy(() => import('./pages/LogPage/page'));
+const EncryptionRecordPage = lazy(() => import('./pages/EncryptionRecord/page'));
+const EncryptedContentPage = lazy(() => import('./pages/EncryptedContent/page'));
 
 
 function RouteTracker() {
@@ -81,6 +83,24 @@ function AppContent() {
                   element={
                     <SafeRouting>
                       <EncryptionProgressPage />
+                    </SafeRouting>
+                  }
+                />
+
+                <Route
+                  path="/encryption-record"
+                  element={
+                    <SafeRouting>
+                      <EncryptionRecordPage />
+                    </SafeRouting>
+                  }
+                />
+
+                <Route
+                  path="/encrypted-content"
+                  element={
+                    <SafeRouting>
+                      <EncryptedContentPage />
                     </SafeRouting>
                   }
                 />

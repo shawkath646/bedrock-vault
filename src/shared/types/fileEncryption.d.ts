@@ -21,6 +21,7 @@ export interface EncryptionOptions {
     addToCloudSync: boolean;
     addTrap: boolean;
     cleanupAfterEncryption: boolean;
+    addToRecordTable: boolean;
 }
 
 export interface EncryptionProgress {
@@ -37,3 +38,23 @@ export interface EncryptionStage {
     message: string;
     progress: number;
 }
+
+export interface EncryptionRecord {
+    chunkName: string;
+    path: string;
+    timestamp: string;
+}
+
+export interface DecryptedFileEntry {
+    name: string;
+    encName: string;
+    virtualPath: string;
+    size: number;
+    ext: string;
+    thumbnail: string;
+    isAvailable: boolean;
+}
+
+export type DecryptionResult = 
+    | { success: true; files: DecryptedFileEntry[]; chunkName: string }
+    | { success: false; error: string; level?: number };

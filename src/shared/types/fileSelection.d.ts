@@ -24,7 +24,6 @@ export interface HandleFileOptions {
 }
 
 export interface FileSelectionOptions {
-    newChunk: boolean;
     chunkName: string;
     includeSubFolders: boolean;
     maxSize: number;

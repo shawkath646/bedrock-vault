@@ -161,7 +161,7 @@ export default function FileSelection({
     };
 
     return (
-        <div className="space-y-1">
+        <div className="space-y-1 mt-6">
             <div className="flex items-center justify-between gap-8 py-1">
                 <h2 className="text-lg font-semibold text-nowrap">Target Files</h2>
 
@@ -199,7 +199,7 @@ export default function FileSelection({
                 </div>
             </div>
 
-            <div className="relative flex-1 flex flex-col duration-200 h-94 mb-3">
+            <div className="relative flex-1 flex flex-col duration-200 h-100 mb-3">
                 {visibleItems.length === 0 && !isLoading ? (
                     <div className="flex flex-col items-center justify-center flex-1 p-12 text-center h-full">
                         <UploadCloud className="w-5 h-5 text-muted-foreground mb-2" />

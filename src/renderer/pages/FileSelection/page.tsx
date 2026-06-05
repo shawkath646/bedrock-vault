@@ -12,7 +12,7 @@ import FileOptions from './FileOptions';
 import FileSelection from './FileSelection';
 import { useNavigate } from 'react-router-dom';
 import TitleBar from '@renderer/components/navigation/Titlebar';
-import { defaultOptions } from '@shared/constant/fileSelection';
+import { defaultOptions } from '@shared/constant/file-selection.constants';
 import type { SelectedFile, FileSelectionOptions } from '@shared/types/fileSelection';
 import { formatSize } from '@renderer/lib/formatSize';
 
@@ -104,7 +104,7 @@ export default function FileSelectionPage() {
                 }
             />
 
-            <div className="mx-auto max-w-7xl px-6 mt-2 space-y-4">
+            <div className="mx-auto max-w-7xl px-6 mt-2">
                 <FileOptions control={control} register={register} errors={errors} />
                 <FileSelection
                     files={fileState}
