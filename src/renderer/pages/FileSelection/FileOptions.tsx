@@ -2,7 +2,7 @@ import { Input } from "@renderer/components/ui/input";
 import { Switch } from "@renderer/components/ui/switch";
 import { Controller } from "react-hook-form";
 import type { Control, UseFormRegister, FieldErrors } from "react-hook-form";
-import type { FileSelectionOptions } from "@shared/types/fileSelection";
+import type { FileSelectionOptions } from "@shared/types/file-selection";
 import { Field, FieldLabel, FieldError } from "@renderer/components/ui/field";
 
 interface FileOptionsProps {

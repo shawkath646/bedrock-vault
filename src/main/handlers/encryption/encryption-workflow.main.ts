@@ -1,12 +1,13 @@
 import * as fs from 'node:fs/promises';
 import path from 'node:path';
 import { shell } from 'electron';
-import type { LockableFile } from '@shared/types/fileSelection';
-import type { EncryptionProgress, FileKeyEntry } from '@shared/types/fileEncryption';
+import type { LockableFile } from '@shared/types/file-selection';
+import type { EncryptionProgress, FileKeyEntry } from '@shared/types/file-encryption';
 
 // Utilities & Loggers
-import { checkSystemResources, saveRecord } from '@main/utils/misc.utils';
+import { checkSystemResources } from '@main/utils/misc.utils';
 import { resolveOutputDirectory } from '@main/utils/path.utils';
+import { saveRecord } from '@main/utils/enc-record';
 import logger from '@main/utils/logger';
 
 // Helpers
@@ -192,7 +193,8 @@ export async function handleStartEncryptionWorkflow(): Promise<void> {
       await saveRecord({
         chunkName,
         path: outputDirectory,
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        encryptionLevel: encryptionOptions.encryptionLevel
       });
     }
 

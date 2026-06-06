@@ -1,4 +1,4 @@
-import type { FileSelectionOptions } from "@shared/types/fileSelection";
+import type { FileSelectionOptions } from "@shared/types/file-selection";
 
 export const defaultOptions: FileSelectionOptions = {
     chunkName: "",

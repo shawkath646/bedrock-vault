@@ -13,7 +13,7 @@ import FileSelection from './FileSelection';
 import { useNavigate } from 'react-router-dom';
 import TitleBar from '@renderer/components/navigation/Titlebar';
 import { defaultOptions } from '@shared/constant/file-selection.constants';
-import type { SelectedFile, FileSelectionOptions } from '@shared/types/fileSelection';
+import type { SelectedFile, FileSelectionOptions } from '@shared/types/file-selection';
 import { formatSize } from '@renderer/lib/formatSize';
 
 interface FileMetadata {

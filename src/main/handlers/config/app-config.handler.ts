@@ -9,6 +9,7 @@ const defaultAppConfig: AppConfig = {
     initialized: false,
     theme: 'system',
     shouldUpdate: false,
+    inactivityTimeoutMs: 300000,
 };
 
 const appConfigFilePath = path.join(app.getPath('userData'), 'config.json');
@@ -17,6 +18,7 @@ const AppConfigSchema: z.ZodSchema<AppConfig> = z.object({
     initialized: z.boolean(),
     theme: z.enum(['light', 'dark', 'system']),
     shouldUpdate: z.boolean(),
+    inactivityTimeoutMs: z.number().int().positive().default(300000),
 });
 
 async function ensureAppConfigDirectoryExists(): Promise<void> {

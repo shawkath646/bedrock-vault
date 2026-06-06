@@ -16,7 +16,7 @@ export function generateMnemonic(): string {
     return words.join(' ');
 }
 
-export function mnemonicToKey(mnemonic: string): Buffer {
+export function mnemonicToKey(mnemonic: string, salt: Buffer | string = 'bedrock-vault-salt-recovery'): Buffer {
     const normalized = mnemonic.trim().toLowerCase().replace(/\s+/g, ' ');
-    return crypto.pbkdf2Sync(normalized, 'bedrock-vault-salt-recovery', 100000, 32, 'sha256');
+    return crypto.pbkdf2Sync(normalized, salt, 100000, 32, 'sha256');
 }

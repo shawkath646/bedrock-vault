@@ -1,4 +1,4 @@
-import type { CloudStatus } from "@shared/types/cloudDrive";
+import type { CloudStatus } from "@shared/types/cloud-drive";
 
 
 export const getCloudStatus = async (): Promise<CloudStatus> => {

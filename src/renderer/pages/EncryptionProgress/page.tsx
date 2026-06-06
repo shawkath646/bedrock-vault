@@ -5,7 +5,7 @@ import { ScrollArea } from "@renderer/components/ui/scroll-area";
 import { formatSize } from "@renderer/lib/formatSize";
 import { Shield, Ban, CheckCircle2, AlertCircle } from "lucide-react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import type { EncryptionProgress, EncryptionStage } from "@shared/types/fileEncryption";
+import type { EncryptionProgress, EncryptionStage } from "@shared/types/file-encryption";
 import { Progress } from "@/components/ui/progress";
 import { StagesViewer } from "./StagesViewer";
 import GetFileIcon from "@/lib/getFileIcon";
@@ -267,7 +267,7 @@ export default function EncryptionProgressPage() {
 
             <DialogRoot open={showResultModal} onOpenChange={setShowResultModal}>
                 <DialogPortal>
-                    <DialogBackdrop />
+                    <DialogBackdrop onClick={() => {}} />
                     <DialogPopup className="max-w-md bg-background border border-border shadow-2xl rounded-2xl p-6">
                         <DialogTitle className="text-xl font-bold flex items-center gap-2">
                             {stages?.current?.type === "COMPLETED" ? (

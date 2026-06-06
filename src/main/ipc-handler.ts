@@ -26,8 +26,10 @@ import { getCloudStatus } from '@main/handlers/cloud-sync/status'
 import { isTpmAvailable, isSoftwareKspAvailable } from '@main/utils/native-crypto'
 import { openExternalUrl, openPathWithSysApp } from '@main/handlers/miscellaneous/shell-commands'
 import { getAppMetadata, getAppUpdateInfo } from './handlers/miscellaneous/miscellaneous'
-import { getRecords } from './utils/misc.utils'
-import { handleEncryptedDirectorySelect } from './handlers/decryption/decryption-workflow.main'
+import { getRecords, removeRecord, addRecord } from './utils/enc-record'
+import decryptMetadata, { clearDecryptedCache, fetchCurrentPathDecryptedFiles } from './handlers/decryption/decrypt-metadata.main'
+import { pingActivity, startSecurityTimer, stopSecurityTimer } from './handlers/decryption/helpers/auto-locker.helpers'
+import { openVaultFile } from './handlers/webdav/webdav.handler'
 
 
 
@@ -35,7 +37,9 @@ export function registerIpcHandlers(): void {
     // Window Management
     ipcMain.handle('window:minimize', (event) => BrowserWindow.fromWebContents(event.sender)?.minimize())
     ipcMain.handle('window:close', (event) => BrowserWindow.fromWebContents(event.sender)?.close())
-    ipcMain.handle('open-dev-tools', () => getMainWindow()?.webContents.openDevTools({ mode: 'detach' }))
+    if (process.env.NODE_ENV === 'development' || process.env.VITE_DEV_SERVER_URL) {
+        ipcMain.handle('open-dev-tools', () => getMainWindow()?.webContents.openDevTools({ mode: 'detach' }))
+    }
 
     // System / Shell
     ipcMain.handle('open-file-with-sys-app', openPathWithSysApp)
@@ -73,9 +77,19 @@ export function registerIpcHandlers(): void {
     ipcMain.handle('start-encryption-flow', handleStartEncryptionWorkflow)
     ipcMain.handle('abort-encryption-flow', abortEncryption)
 
+    // Encryption Record Management
+    ipcMain.handle('encryption-record:get-records', getRecords)
+    ipcMain.handle('encryption-record:add-record', addRecord)
+    ipcMain.handle('encryption-record:remove-record', removeRecord)
+
     // Decryption Workflow
-    ipcMain.handle('decrypt-files:get-records', getRecords)
-    ipcMain.handle('decrypt-files:encrypted-directory-select', handleEncryptedDirectorySelect)
+    ipcMain.handle('decryption:decrypt-metadata', decryptMetadata)
+    ipcMain.handle('decryption:get-current-path-files', fetchCurrentPathDecryptedFiles)
+    ipcMain.handle('decryption:open-vault-file', openVaultFile)
+    ipcMain.handle('decryption:lock-vault', clearDecryptedCache)
+    ipcMain.on('start-security-timer', () => startSecurityTimer())
+    ipcMain.on('stop-security-timer', () => stopSecurityTimer())
+    ipcMain.on('ping-activity', () => pingActivity())
 
     // Logging & Tools (Fixed the serialization bug here)
     ipcMain.handle('app-log', logRenderer)

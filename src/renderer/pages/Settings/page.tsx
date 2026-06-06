@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
 import TitleBar from "@renderer/components/navigation/Titlebar";
 import { Button } from "@renderer/components/ui/button";
-import { ArrowLeft, Settings, Moon, Sun, Monitor, Globe, RotateCcw, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Settings, Moon, Sun, Monitor, Globe, RotateCcw, AlertTriangle, Clock } from "lucide-react";
 import useTheme from "@renderer/lib/theme";
+import { AppConfigContext } from "@renderer/contexts/AppConfigContext";
 import {
     DialogRoot,
     DialogPortal,
@@ -17,6 +18,9 @@ import {
 export default function SettingsPage() {
     const navigate = useNavigate();
     const { theme, handleThemeChange } = useTheme();
+    const configCtx = useContext(AppConfigContext);
+    if (!configCtx) throw new Error("SettingsPage must be used within AppConfigProvider");
+    const { config, saveConfig } = configCtx;
     const [language, setLanguage] = useState("en");
     const [showResetConfirm, setShowResetConfirm] = useState(false);
     const [isResetting, setIsResetting] = useState(false);
@@ -103,6 +107,32 @@ export default function SettingsPage() {
                             <option value="es">Español</option>
                             <option value="fr">Français</option>
                             <option value="de">Deutsch</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div className="flex items-center justify-between p-5">
+                    <div className="space-y-1">
+                        <h3 className="text-sm font-semibold flex items-center gap-2">
+                            <Clock className="w-4 h-4 text-muted-foreground" />
+                            Auto-Lock Timeout
+                        </h3>
+                        <p className="text-xs text-muted-foreground">Lock vault automatically after a period of inactivity.</p>
+                    </div>
+                    <div className="w-48">
+                        <select
+                            id="autolock-select"
+                            value={config?.inactivityTimeoutMs ?? 300000}
+                            onChange={(e) => {
+                                void saveConfig({ inactivityTimeoutMs: Number(e.target.value) });
+                            }}
+                            className="w-full text-xs bg-background/50 border border-border/60 hover:border-border rounded-xl px-3 py-2 outline-hidden appearance-none cursor-pointer"
+                        >
+                            <option value="60000">1 Minute</option>
+                            <option value="300000">5 Minutes</option>
+                            <option value="900000">15 Minutes</option>
+                            <option value="1800000">30 Minutes</option>
+                            <option value="3600000">1 Hour</option>
                         </select>
                     </div>
                 </div>

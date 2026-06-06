@@ -1,6 +1,6 @@
-import type { HandleFileOptions } from '@shared/types/fileSelection'
-import type { FileSelectionOptions, SelectedFilesState } from '@shared/types/fileSelection'
-import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from '@shared/types/fileEncryption'
+import type { HandleFileOptions } from '@shared/types/file-selection'
+import type { FileSelectionOptions, SelectedFilesState } from '@shared/types/file-selection'
+import type { EncryptionOptions, EncryptionProgress, EncryptionStage } from '@shared/types/file-encryption'
 import type { AppConfig } from '@shared/types/global'
 import type { PopupPayload } from '@shared/types/global'
 import { contextBridge, ipcRenderer } from 'electron'
@@ -79,7 +79,43 @@ contextBridge.exposeInMainWorld('appLogs', {
   }
 })
 
-contextBridge.exposeInMainWorld('decryptFiles', {
-  getRecords: () => ipcRenderer.invoke('decrypt-files:get-records'),
-  encryptedDirectorySelect: (directoryPath?: string) => ipcRenderer.invoke('decrypt-files:encrypted-directory-select', directoryPath)
+contextBridge.exposeInMainWorld('encryptionRecord', {
+  getRecords: () => ipcRenderer.invoke('encryption-record:get-records'),
+  addRecord: () => ipcRenderer.invoke('encryption-record:add-record'),
+  removeRecord: (directoryPath: string, deletePermanently: boolean) => ipcRenderer.invoke('encryption-record:remove-record', directoryPath, deletePermanently)
 })
+
+contextBridge.exposeInMainWorld('decryption', {
+  decryptMetadata: (directoryPath?: string) => ipcRenderer.invoke('decryption:decrypt-metadata', directoryPath),
+  getCurrentPathFiles: (currentPath: string | null) => ipcRenderer.invoke('decryption:get-current-path-files', currentPath),
+  lockVault: () => ipcRenderer.invoke('decryption:lock-vault'),
+  openVaultFile: (virtualPath: string) => ipcRenderer.invoke('decryption:open-vault-file', virtualPath)
+})
+
+const allowedSendChannels = ['start-security-timer', 'stop-security-timer', 'ping-activity'];
+const allowedReceiveChannels = ['vault-locked-inactivity'];
+const allowedInvokeChannels: string[] = [];
+
+contextBridge.exposeInMainWorld('ipcRenderer', {
+  send: (channel: string, ...args: unknown[]) => {
+    if (allowedSendChannels.includes(channel)) {
+      ipcRenderer.send(channel, ...args);
+    }
+  },
+  invoke: (channel: string, ...args: unknown[]) => {
+    if (allowedInvokeChannels.includes(channel)) {
+      return ipcRenderer.invoke(channel, ...args);
+    }
+    return Promise.reject(new Error(`Unauthorized IPC invoke call: ${channel}`));
+  },
+  on: (channel: string, func: (...args: unknown[]) => void) => {
+    if (allowedReceiveChannels.includes(channel)) {
+      const subscription = (_event: unknown, ...args: unknown[]) => func(...args);
+      ipcRenderer.on(channel, subscription);
+      return () => {
+        ipcRenderer.removeListener(channel, subscription);
+      };
+    }
+    return () => {};
+  }
+});

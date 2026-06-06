@@ -20,7 +20,7 @@ const UpdatePage = lazy(() => import('./pages/Update/page'));
 const SettingsPage = lazy(() => import('./pages/Settings/page'));
 const LogPage = lazy(() => import('./pages/LogPage/page'));
 const EncryptionRecordPage = lazy(() => import('./pages/EncryptionRecord/page'));
-const EncryptedContentPage = lazy(() => import('./pages/EncryptedContent/page'));
+const DecryptedContentPage = lazy(() => import('./pages/DecryptedContent/page'));
 
 
 function RouteTracker() {
@@ -97,10 +97,10 @@ function AppContent() {
                 />
 
                 <Route
-                  path="/encrypted-content"
+                  path="/decrypted-content"
                   element={
                     <SafeRouting>
-                      <EncryptedContentPage />
+                      <DecryptedContentPage />
                     </SafeRouting>
                   }
                 />

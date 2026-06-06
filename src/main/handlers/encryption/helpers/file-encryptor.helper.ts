@@ -18,8 +18,8 @@ import { emitFileProgress } from './encryption-emitter.helper';
 import { fetchEncryptionOptions } from '@main/handlers/encryption/encryption-options.store';
 
 // Types
-import type { SelectedFile, LockableFile } from '@shared/types/fileSelection';
-import type { EncryptionProgress, FileKeyEntry } from '@shared/types/fileEncryption';
+import type { SelectedFile, LockableFile } from '@shared/types/file-selection';
+import type { EncryptionProgress, FileKeyEntry } from '@shared/types/file-encryption';
 
 // Constants
 import { ENC_ALGORITHM } from '@main/constant/crypto.constants';
@@ -147,7 +147,6 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
         enc_algorithm: ENC_ALGORITHM,
         size: file.size,
         ext: file.ext,
-        thumbnail: '',
       };
     } catch (err) {
       key.fill(0);

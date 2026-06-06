@@ -3,26 +3,23 @@ import type {
   SelectedFile,
   FileSelectionOptions,
   SelectedFilesState,
-} from "@shared/types/fileSelection";
+} from "@shared/types/file-selection";
 
-import type { EncryptionOptions, EncryptionProgress, EncryptionStage, EncryptionRecord } from "@shared/types/fileEncryption";
-import type { AppConfig, SaveResult, AppData } from "@shared/types/global";
+import type { EncryptionOptions, EncryptionProgress, EncryptionStage, EncryptionRecord } from "@shared/types/file-encryption";
+import type { AppConfig, SaveResult, AppData, AppUpdateInfo } from "@shared/types/global";
 import type { PopupPayload } from "@shared/types/popup";
-import type { CloudStatus } from "@shared/types/cloudDrive";
+import type { CloudStatus } from "@shared/types/cloud-drive";
+import type { DecryptMetadataResult } from "@shared/types/file-decryption";
 
 export interface DecryptedFileEntry {
   name: string;
-  encName: string;
+  encName?: string;
   virtualPath: string;
   size: number;
   ext: string;
-  thumbnail: string;
   isAvailable: boolean;
+  isDir: boolean;
 }
-
-export type DecryptionResult = 
-  | { success: true; files: DecryptedFileEntry[]; chunkName: string }
-  | { success: false; error: string; level?: number };
 
 declare global {
   interface Window {
@@ -31,7 +28,7 @@ declare global {
       close: () => Promise<void> | void;
       openDevTools: () => Promise<void>;
       openPathWithSysApp: (path: string) => Promise<void>;
-      getAppUpdateInfo: () => Promise<{ lastUpdate: string; currentVersion: string; latestVersion: string; updateUrl: string }>;
+      getAppUpdateInfo: () => Promise<AppUpdateInfo>;
       openExternalUrl: (url: string) => Promise<void>;
       onPopupShow: (callback: (payload: PopupPayload) => void) => () => void;
       getAppData: () => Promise<AppData>;
@@ -105,9 +102,23 @@ declare global {
       onLogUpdate: (callback: (data: { fileType: "main" | "renderer"; line: string }) => void) => () => void;
     };
 
-    decryptFiles: {
+    encryptionRecord: {
       getRecords: () => Promise<EncryptionRecord[]>;
-      encryptedDirectorySelect: (directoryPath?: string) => Promise<DecryptionResult>;
+      addRecord: () => Promise<EncryptionRecord | null>;
+      removeRecord: (directoryPath: string, deletePermanently: boolean) => Promise<void>;
+    };
+
+    decryption: {
+      decryptMetadata: (directoryPath?: string) => Promise<DecryptMetadataResult>;
+      getCurrentPathFiles: (currentPath: string | null) => Promise<DecryptedFileEntry[]>;
+      lockVault: () => Promise<void>;
+      openVaultFile: (virtualPath: string) => Promise<void>;
+    };
+
+    ipcRenderer: {
+      send: (channel: string, ...args: unknown[]) => void;
+      invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+      on: (channel: string, func: (...args: unknown[]) => void) => () => void;
     };
   }
 }

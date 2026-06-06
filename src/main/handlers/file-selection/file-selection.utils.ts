@@ -5,7 +5,7 @@ import type {
     FileSelectionOptions,
     HandleFileOptions,
     SelectedFile,
-} from '@shared/types/fileSelection';
+} from '@shared/types/file-selection';
 import { ALL_KNOWN_FILE_EXTENSIONS, FILE_TYPE_EXTENSION_MAP } from './file-selection.constants';
 
 export interface PersistedSelectionState {

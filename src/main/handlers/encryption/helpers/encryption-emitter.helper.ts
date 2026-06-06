@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import type { EncryptionProgress, EncryptionStage } from '@shared/types/fileEncryption';
+import type { EncryptionProgress, EncryptionStage } from '@shared/types/file-encryption';
 
 // Constants
 import { THROTTLE_INTERVAL_MS } from '@main/constant/file.constants';
@@ -22,10 +22,18 @@ export function emitFileProgress(progressMap: Map<string, EncryptionProgress>, i
   const now = Date.now();
   
   const performEmit = () => {
-    const all = [...progressMap.values()];
-    const encrypting = all.filter(f => f.status === 'encrypting');
-    const pending    = all.filter(f => f.status === 'pending');
-    const done       = all.filter(f => f.status === 'completed' || f.status === 'failed');
+    const encrypting: EncryptionProgress[] = [];
+    const pending: EncryptionProgress[] = [];
+    const done: EncryptionProgress[] = [];
+    for (const f of progressMap.values()) {
+      if (f.status === 'encrypting') {
+        encrypting.push(f);
+      } else if (f.status === 'pending') {
+        pending.push(f);
+      } else {
+        done.push(f);
+      }
+    }
     encryptionEmitter.emit('file-progress', [...encrypting, ...pending, ...done]);
     lastEmitTime = Date.now();
     if (throttleTimeout) {

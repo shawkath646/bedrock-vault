@@ -1,7 +1,9 @@
-import type { EncryptionOptions } from "@shared/types/fileEncryption";
+import type { EncryptionOptions } from "@shared/types/file-encryption";
+
+export const VALID_ENCRYPTION_LEVELS = [1, 2, 3] as const;
 
 export const defaultOptions: EncryptionOptions = {
-    encryptionLevel: 3,
+    encryptionLevel: VALID_ENCRYPTION_LEVELS[VALID_ENCRYPTION_LEVELS.length - 1],
     addToCloudSync: true,
     addTrap: false,
     cleanupAfterEncryption: false,

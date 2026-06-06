@@ -12,9 +12,9 @@ import {
     DialogClose,
 } from "@renderer/components/ui/dialog"
 import { formatSize } from "@renderer/lib/formatSize";
-import type { HandleFileOptions, SelectedFile } from "@shared/types/fileSelection";
-import type { FileSelectionOptions } from "@shared/types/fileSelection";
-import { AnimatePresence, motion } from "framer-motion";
+import type { HandleFileOptions, SelectedFile } from "@shared/types/file-selection";
+import type { FileSelectionOptions } from "@shared/types/file-selection";
+import { motion } from "framer-motion";
 import {
     UploadCloud,
     ArrowLeft,
@@ -207,45 +207,40 @@ export default function FileSelection({
                     </div>
                 ) : (
                     <ScrollArea className="h-full w-full rounded-md relative">
-                        <div className="grid grid-cols-2 gap-2">
-                            <AnimatePresence initial={false}>
-                                {visibleItems.map((file) => (
-                                    <motion.div
-                                        key={file.path}
-                                        layout
-                                        exit={{ opacity: 0, y: -12, scale: 0.98 }}
-                                        transition={{ duration: 0.18, ease: "easeOut" }}
-                                        className="flex items-center justify-between p-3 bg-background border rounded-lg group hover:border-primary/50 transition-colors"
-                                        onDoubleClick={() => {
-                                            if (file.isDir && !isLoading) {
-                                                void openFolder(file.path);
-                                            } else {
-                                                window.appWindow.openPathWithSysApp(file.actualPath)
-                                            }
+                        <div className="grid grid-cols-3 gap-2">
+                            {visibleItems.map((file) => (
+                                <div
+                                    key={file.path}
+                                    className="flex items-center justify-between p-3 bg-background border rounded-lg group hover:border-primary/50 transition-colors"
+                                    onDoubleClick={() => {
+                                        if (file.isDir && !isLoading) {
+                                            void openFolder(file.path);
+                                        } else {
+                                            window.appWindow.openPathWithSysApp(file.actualPath)
+                                        }
+                                    }}
+                                >
+                                    <div className="flex items-center space-x-3 overflow-hidden">
+                                        <GetFileIcon ext={file.isDir ? "dir" : file.ext} />
+                                        <div className="truncate">
+                                            <p className="text-sm font-medium truncate">{file.name}</p>
+                                            <p className="text-xs text-muted-foreground">{file.isDir ? null : formatSize(file.size)}</p>
+                                        </div>
+                                    </div>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
+                                        disabled={isLoading}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            void removeFile(file);
                                         }}
                                     >
-                                        <div className="flex items-center space-x-3 overflow-hidden">
-                                            <GetFileIcon ext={file.isDir ? "dir" : file.ext} />
-                                            <div className="truncate">
-                                                <p className="text-sm font-medium truncate">{file.name}</p>
-                                                <p className="text-xs text-muted-foreground">{file.isDir ? 'Folder' : formatSize(file.size)}</p>
-                                            </div>
-                                        </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive transition-all"
-                                            disabled={isLoading}
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                void removeFile(file);
-                                            }}
-                                        >
-                                            <X className="w-4 h-4" />
-                                        </Button>
-                                    </motion.div>
-                                ))}
-                            </AnimatePresence>
+                                        <X className="w-4 h-4" />
+                                    </Button>
+                                </div>
+                            ))}
                         </div>
                     </ScrollArea>
                 )}

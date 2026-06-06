@@ -3,6 +3,14 @@ import { createWindow, getMainWindow } from './window-manager'
 import { registerIpcHandlers } from './ipc-handler'
 import { initializeFileSelectionHandler } from './handlers/file-selection/file-selection.handler'
 import logger from './utils/logger'
+import { unmountDriveAndStop } from './handlers/webdav/webdav-server'
+
+app.on('before-quit', (e) => {
+  e.preventDefault();
+  unmountDriveAndStop().finally(() => {
+    app.exit();
+  });
+});
 
 function setupSingleInstanceLock(): boolean {
 

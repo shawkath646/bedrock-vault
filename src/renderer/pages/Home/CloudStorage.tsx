@@ -2,7 +2,7 @@ import { Button } from "@renderer/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@renderer/components/ui/card";
 import { Cloud, RefreshCw, Settings, Plus } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { CloudStatus } from "@shared/types/cloudDrive";
+import type { CloudStatus } from "@shared/types/cloud-drive";
 
 import driveIcon from "@/assets/cloud-providers/google-drive.svg";
 import dropboxIcon from "@/assets/cloud-providers/dropbox.svg";

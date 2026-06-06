@@ -1,17 +1,21 @@
 import crypto from 'node:crypto';
-import type { FileKeyEntry } from '@shared/types/fileEncryption';
+import { promisify } from 'node:util';
+import type { FileKeyEntry } from '@shared/types/file-encryption';
 import { isTpmAvailable, isSoftwareKspAvailable, tpmDecrypt } from '@main/utils/native-crypto';
 import logger from '@main/utils/logger';
 import {
   decryptDataRaw,
   deserializeMetadata,
+  parseMetadataHeader,
   type EncryptedDataRaw
 } from '@main/handlers/crypto-core.helpers';
 import { MetadataSchema } from '../decryption-schemas';
-import { MAGIC_BYTES, CRYPTO_SIZES } from '@main/constant/crypto.constants';
+import { CRYPTO_SIZES } from '@main/constant/crypto.constants';
+import { VALID_ENCRYPTION_LEVELS } from '@shared/constant/encryption-options.constants';
+import type { EncryptionLevel } from '@shared/types/global';
 
 interface DecryptedPayloadResult {
-  level: number;
+  level: EncryptionLevel;
   chunkName: string;
   fileMetadata: FileKeyEntry[];
 }
@@ -20,47 +24,45 @@ export async function decryptMetadataPayload(
   metadataBuffer: Buffer,
   passwordBuffer: Buffer
 ): Promise<DecryptedPayloadResult> {
-  if (metadataBuffer.length < CRYPTO_SIZES.MAGIC) {
-    throw new Error('INVALID_METADATA_HEADER');
-  }
-
-  // Check magic bytes
-  const magic = metadataBuffer.toString('utf8', 0, CRYPTO_SIZES.MAGIC);
-  let level: number;
-  if (magic === MAGIC_BYTES.LEVEL1) {
-    level = 1;
-  } else if (magic === MAGIC_BYTES.LEVEL2) {
-    level = 2;
-  } else if (magic === MAGIC_BYTES.LEVEL3) {
-    level = 3;
-  } else {
-    throw new Error('INVALID_METADATA_HEADER');
-  }
-
-  // Validate TPM availability for Levels 2 & 3
-  if ((level === 2 || level === 3) && !isTpmAvailable() && !isSoftwareKspAvailable()) {
-    const errorWithLevel = new Error('TPM_UNAVAILABLE') as Error & { level?: number };
-    errorWithLevel.level = level;
+  const header = parseMetadataHeader(metadataBuffer);
+  
+  // FIX: Check if the level is NOT in our valid array
+  if (!VALID_ENCRYPTION_LEVELS.includes(header.encryptionLevel as EncryptionLevel)) {
+    const errorWithLevel = new Error('INVALID_LEVEL') as Error & { level?: number };
+    errorWithLevel.level = header.encryptionLevel;
     throw errorWithLevel;
   }
 
-  // Extract fields
+  // Validate TPM availability for Levels 2 & 3
+  if ((header.encryptionLevel === 2 || header.encryptionLevel === 3) && !isTpmAvailable() && !isSoftwareKspAvailable()) {
+    const errorWithLevel = new Error('TPM_UNAVAILABLE') as Error & { level?: number };
+    errorWithLevel.level = header.encryptionLevel;
+    throw errorWithLevel;
+  }
+
+  const startCrypto = header.cryptoPayloadOffset;
+
+  // Extract fields starting from crypto payload offset
   const salt = metadataBuffer.subarray(
-    CRYPTO_SIZES.MAGIC,
-    CRYPTO_SIZES.MAGIC + CRYPTO_SIZES.SALT
+    startCrypto,
+    startCrypto + CRYPTO_SIZES.SALT
   );
-  const passwordKey = crypto.scryptSync(passwordBuffer, salt, CRYPTO_SIZES.KEY);
+  
+  // Note: Since this is decryption, you might also want to wrap this in scryptAsync 
+  // like we did in the encryption flow to prevent blocking the UI!
+  const scryptAsync = promisify(crypto.scrypt);
+  const passwordKey = (await scryptAsync(passwordBuffer, salt, CRYPTO_SIZES.KEY)) as Buffer;
 
   let passWrap: EncryptedDataRaw;
   let metadataEnc: EncryptedDataRaw;
-  const startWrap = CRYPTO_SIZES.MAGIC + CRYPTO_SIZES.SALT;
+  const startWrap = startCrypto + CRYPTO_SIZES.SALT;
 
   let dek: Buffer | null = null;
   let tpmWrappedDek: Buffer | null = null;
   let decryptedMetadata: Buffer | null = null;
 
   try {
-    if (level === 1) {
+    if (header.encryptionLevel === 1) {
       const minLength = startWrap + 2 * (CRYPTO_SIZES.IV + CRYPTO_SIZES.AUTH_TAG + CRYPTO_SIZES.PASS_ENC_DATA) + CRYPTO_SIZES.IV + CRYPTO_SIZES.AUTH_TAG;
       if (metadataBuffer.length < minLength) {
         throw new Error('CORRUPTED_METADATA');
@@ -108,7 +110,7 @@ export async function decryptMetadataPayload(
 
     // Decrypt DEK
     try {
-      if (level === 1) {
+      if (header.encryptionLevel === 1) {
         dek = decryptDataRaw(passWrap, passwordKey);
       } else {
         tpmWrappedDek = decryptDataRaw(passWrap, passwordKey);
@@ -136,8 +138,8 @@ export async function decryptMetadataPayload(
     const validated = MetadataSchema.parse(deserialized);
 
     return {
-      level,
-      chunkName: validated.chunkName,
+      level: header.encryptionLevel as EncryptionLevel,
+      chunkName: header.chunkName,
       fileMetadata: validated.fileMetadata
     };
   } finally {

@@ -1,0 +1,2 @@
+export const INACTIVITY__AUTOLOCK_MS = 300000; // 5 minutes
+export const INACTIVITY_TIMEOUT_MS = INACTIVITY__AUTOLOCK_MS;

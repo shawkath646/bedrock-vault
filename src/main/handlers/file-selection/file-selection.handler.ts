@@ -7,7 +7,7 @@ import type {
     HandleFileOptions,
     SelectedFile,
     SelectedFilesState,
-} from '@shared/types/fileSelection';
+} from '@shared/types/file-selection';
 import z from 'zod';
 import type { SaveResult } from '@shared/types/global';
 import {

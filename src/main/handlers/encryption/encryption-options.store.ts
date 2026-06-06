@@ -4,7 +4,7 @@ import path from 'node:path';
 import z from 'zod';
 import { fetchAllSelectedItems } from "@main/handlers/file-selection/file-selection.handler"
 import { defaultOptions } from '@shared/constant/encryption-options.constants';
-import type { EncryptionOptions } from '@shared/types/fileEncryption';
+import type { EncryptionOptions } from '@shared/types/file-encryption';
 import type { SaveResult } from '@shared/types/global';
 import logger from '@main/utils/logger';
 import { isSoftwareKspAvailable, isTpmAvailable } from '@main/utils/native-crypto';

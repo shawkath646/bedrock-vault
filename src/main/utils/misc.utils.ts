@@ -1,13 +1,7 @@
-import { app } from 'electron';
-import * as fs from 'node:fs/promises';
 import * as os from 'node:os';
 import path from 'node:path';
-import type { EncryptionRecord } from '@shared/types/fileEncryption';
-import logger from '@main/utils/logger';
-
-// Constants
 import { MIN_FREE_MEMORY_BYTES } from '@main/constant/system.constants';
-import { RECORD_FILENAME } from '@main/constant/file.constants';
+
 
 export function formatSize(bytes: number): string {
   if (bytes <= 0) return '0 KB';
@@ -20,12 +14,34 @@ export function formatSize(bytes: number): string {
   return `${value.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
 }
 
+let cachedSi: typeof import('systeminformation') | null = null;
+
+async function getSystemInformation() {
+  if (!cachedSi) {
+    cachedSi = await import('systeminformation');
+  }
+  return cachedSi;
+}
+
+let cachedDisks: import('systeminformation').Systeminformation.FsSizeData[] | null = null;
+let cachedDisksTime = 0;
+const DISKS_CACHE_TTL_MS = 5000;
+
+async function getFsSize() {
+  const now = Date.now();
+  if (!cachedDisks || (now - cachedDisksTime) > DISKS_CACHE_TTL_MS) {
+    const si = await getSystemInformation();
+    cachedDisks = await si.fsSize();
+    cachedDisksTime = now;
+  }
+  return cachedDisks;
+}
+
 export async function getDriveInfoFromPath(filePath: string) {
   const resolvedPath = path.resolve(filePath);
   const root = path.parse(resolvedPath).root;
 
-  const { fsSize } = await import('systeminformation');
-  const disks = await fsSize();
+  const disks = await getFsSize();
 
   return disks.find(disk => {
     const mount = path.normalize(disk.mount || disk.fs);
@@ -68,8 +84,8 @@ export async function checkSystemResources(
   }
 
   try {
-    const { mem } = await import('systeminformation');
-    const memData = await mem();
+    const si = await getSystemInformation();
+    const memData = await si.mem();
     if (memData.available < MIN_FREE_MEMORY_BYTES) {
       warnings.push({
         field: 'memory',
@@ -88,32 +104,3 @@ export async function checkSystemResources(
   return { ok: true, warnings };
 }
 
-const recordFilePath = path.join(app.getPath('userData'), RECORD_FILENAME);
-
-export async function getRecords(): Promise<EncryptionRecord[]> {
-  try {
-    const rawContent = await fs.readFile(recordFilePath, 'utf-8');
-    const parsed = JSON.parse(rawContent);
-    if (Array.isArray(parsed)) {
-      return parsed;
-    }
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError.code !== 'ENOENT') {
-      await logger.error('RecordUtil', `Failed to read records from record.json: ${error}`);
-    }
-  }
-  return [];
-}
-
-export async function saveRecord(record: EncryptionRecord): Promise<void> {
-  try {
-    const records = await getRecords();
-    records.push(record);
-    await fs.mkdir(path.dirname(recordFilePath), { recursive: true });
-    await fs.writeFile(recordFilePath, JSON.stringify(records, null, 2), 'utf-8');
-    await logger.info('RecordUtil', `Successfully saved encryption record for ${record.chunkName}`);
-  } catch (error) {
-    await logger.error('RecordUtil', `Failed to save encryption record: ${error}`);
-  }
-}

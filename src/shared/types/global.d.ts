@@ -1,15 +1,19 @@
+import { VALID_ENCRYPTION_LEVELS } from "@shared/constant/encryption-options.constants";
+
 export interface AppConfig {
     initialized: boolean;
     theme: "system" | "light" | "dark";
     shouldUpdate: boolean;
+    inactivityTimeoutMs?: number;
 }
+
+export type EncryptionLevel = typeof VALID_ENCRYPTION_LEVELS[number];
 
 export type PopupType = 'info' | 'warning' | 'error' | 'success';
 
 export interface PopupPayload {
     type: PopupType;
     message: string;
-    /** If true the user must dismiss manually; if false it auto-closes after 4 s. */
     closable: boolean;
 }
 
@@ -29,4 +33,18 @@ export interface AppData {
         url: string;
         icon: string;
     };
+}
+
+export type AppUpdateInfo = {
+    updateAvailable: true;
+    lastUpdate: string;
+    currentVersion: string;
+    latestVersion: string;
+    updateUrl: string;
+    releaseNotes: string[];
+} | {
+    updateAvailable: false;
+    lastUpdate: string;
+    currentVersion: string;
+    releaseNotes: string[];
 }

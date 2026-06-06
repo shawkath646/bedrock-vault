@@ -1,9 +1,9 @@
 import crypto from 'node:crypto';
-import type { FileKeyEntry } from '@shared/types/fileEncryption';
-import { ENC_ALGORITHM } from '@main/constant/crypto.constants';
+import type { FileKeyEntry } from '@shared/types/file-encryption';
+import { ENC_ALGORITHM, MAGIC_BYTES } from '@main/constant/crypto.constants';
 
 export interface MetadataHandler {
-  chunkName: string;
+  chunkName?: string;
   fileMetadata: FileKeyEntry[];
 }
 
@@ -11,6 +11,97 @@ export interface EncryptedDataRaw {
   iv: Buffer;
   authTag: Buffer;
   encryptedData: Buffer;
+}
+
+export interface ParsedHeader {
+  magic: string;
+  encryptionLevel: number;
+  timestamp: string;
+  chunkName: string;
+  cryptoPayloadOffset: number;
+}
+
+export function buildMetadataPayload(
+  level: number,
+  chunkName: string,
+  timestampMs: number,
+  salt: Buffer,
+  passWrap: EncryptedDataRaw,
+  backupWrap: EncryptedDataRaw,
+  metadataEnc: EncryptedDataRaw
+): Buffer {
+  let magic: string;
+  if (level === 1) magic = MAGIC_BYTES.LEVEL1;
+  else if (level === 2) magic = MAGIC_BYTES.LEVEL2;
+  else if (level === 3) magic = MAGIC_BYTES.LEVEL3;
+  else throw new Error(`Invalid encryption level: ${level}`);
+
+  const magicBytes = Buffer.from(magic, 'utf8'); // 4 bytes
+  
+  const levelByte = Buffer.alloc(1);
+  levelByte.writeUInt8(level, 0); // 1 byte
+
+  const timeBuf = Buffer.alloc(8);
+  timeBuf.writeBigInt64BE(BigInt(timestampMs), 0); // 8 bytes
+
+  const chunkNameBuf = Buffer.from(chunkName, 'utf8');
+  const chunkNameLenBuf = Buffer.alloc(4);
+  chunkNameLenBuf.writeUInt32BE(chunkNameBuf.length, 0); // 4 bytes
+
+  return Buffer.concat([
+    magicBytes,
+    levelByte,
+    timeBuf,
+    chunkNameLenBuf,
+    chunkNameBuf,
+    salt,
+    passWrap.iv,
+    passWrap.authTag,
+    passWrap.encryptedData,
+    backupWrap.iv,
+    backupWrap.authTag,
+    backupWrap.encryptedData,
+    metadataEnc.iv,
+    metadataEnc.authTag,
+    metadataEnc.encryptedData
+  ]);
+}
+
+export function parseMetadataHeader(buffer: Buffer): ParsedHeader {
+  if (buffer.length < 17) {
+    throw new Error('INVALID_METADATA_HEADER');
+  }
+
+  let offset = 0;
+  const magic = buffer.toString('utf8', offset, offset + 4);
+  offset += 4;
+
+  if (magic !== MAGIC_BYTES.LEVEL1 && magic !== MAGIC_BYTES.LEVEL2 && magic !== MAGIC_BYTES.LEVEL3) {
+    throw new Error('INVALID_METADATA_HEADER');
+  }
+
+  const encryptionLevel = buffer.readUInt8(offset);
+  offset += 1;
+
+  const timestampMs = Number(buffer.readBigInt64BE(offset));
+  offset += 8;
+
+  const chunkNameLen = buffer.readUInt32BE(offset);
+  offset += 4;
+
+  if (offset + chunkNameLen > buffer.length) {
+    throw new Error('CORRUPTED_METADATA');
+  }
+  const chunkName = buffer.toString('utf8', offset, offset + chunkNameLen);
+  offset += chunkNameLen;
+
+  return {
+    magic,
+    encryptionLevel,
+    timestamp: new Date(timestampMs).toISOString(),
+    chunkName,
+    cryptoPayloadOffset: offset
+  };
 }
 
 /**
@@ -27,15 +118,12 @@ export function serializeMetadata(metadata: MetadataHandler): Buffer {
     buffers.push(lenBuf, strBuf);
   };
 
-  // 1. Write chunkName
-  writeString(metadata.chunkName);
-
-  // 2. Write count of fileMetadata entries
+  // 1. Write count of fileMetadata entries
   const countBuf = Buffer.alloc(4);
   countBuf.writeUInt32BE(metadata.fileMetadata.length, 0);
   buffers.push(countBuf);
 
-  // 3. Write each file entry
+  // 2. Write each file entry
   for (const entry of metadata.fileMetadata) {
     writeString(entry.name);
     writeString(entry.encName);
@@ -59,10 +147,16 @@ export function serializeMetadata(metadata: MetadataHandler): Buffer {
     buffers.push(sizeBuf);
     
     writeString(entry.ext);
-    writeString(entry.thumbnail);
   }
 
-  return Buffer.concat(buffers);
+  const result = Buffer.concat(buffers);
+  
+  // Zero out intermediate buffers to prevent keys/IVs from lingering in heap
+  for (const buf of buffers) {
+    buf.fill(0);
+  }
+
+  return result;
 }
 
 /**
@@ -81,8 +175,6 @@ export function deserializeMetadata(buffer: Buffer): MetadataHandler {
     return str;
   };
 
-  const chunkName = readString();
-  
   if (offset + 4 > buffer.length) throw new Error("Malformed metadata: count out of bounds");
   const count = buffer.readUInt32BE(offset);
   offset += 4;
@@ -111,7 +203,6 @@ export function deserializeMetadata(buffer: Buffer): MetadataHandler {
     offset += 8;
 
     const ext = readString();
-    const thumbnail = readString();
 
     fileMetadata.push({
       name,
@@ -122,11 +213,10 @@ export function deserializeMetadata(buffer: Buffer): MetadataHandler {
       enc_algorithm,
       size,
       ext,
-      thumbnail
     });
   }
 
-  return { chunkName, fileMetadata };
+  return { fileMetadata };
 }
 
 /**

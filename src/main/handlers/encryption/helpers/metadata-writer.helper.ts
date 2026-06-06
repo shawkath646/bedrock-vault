@@ -12,12 +12,13 @@ import logger from '@main/utils/logger';
 import {
   serializeMetadata,
   encryptDataRaw,
+  buildMetadataPayload,
   type MetadataHandler,
   type EncryptedDataRaw
 } from '@main/handlers/crypto-core.helpers';
 
 // Constants
-import { MAGIC_BYTES, KEYFILE_HEADER } from '@main/constant/crypto.constants';
+import { KEYFILE_HEADER } from '@main/constant/crypto.constants';
 
 const scryptAsync = promisify(crypto.scrypt);
 
@@ -35,7 +36,7 @@ export async function level1Enc(props: MetadataHandler, password: Buffer, output
   const passwordKey = (await scryptAsync(password, salt, 32)) as Buffer;
 
   const recoveryPhrase = generateMnemonic();
-  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase);
+  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase, salt);
 
   let passWrap: EncryptedDataRaw | null = null;
   let backupWrap: EncryptedDataRaw | null = null;
@@ -46,21 +47,16 @@ export async function level1Enc(props: MetadataHandler, password: Buffer, output
     passWrap = encryptDataRaw(dek, passwordKey);
     backupWrap = encryptDataRaw(dek, recoveryPhraseKey);
 
-    const magicBytes = Buffer.from(MAGIC_BYTES.LEVEL1, "utf8");
-
-    const finalBinaryPayload = Buffer.concat([
-      magicBytes,
+    const timestampMs = Date.now();
+    const finalBinaryPayload = buildMetadataPayload(
+      1,
+      props.chunkName || 'default',
+      timestampMs,
       salt,
-      passWrap.iv,
-      passWrap.authTag,
-      passWrap.encryptedData,
-      backupWrap.iv,
-      backupWrap.authTag,
-      backupWrap.encryptedData,
-      metadataEnc.iv,
-      metadataEnc.authTag,
-      metadataEnc.encryptedData
-    ]);
+      passWrap,
+      backupWrap,
+      metadataEnc
+    );
 
     await fs.mkdir(path.dirname(outputPath.metadataPath), { recursive: true });
     await fs.writeFile(outputPath.metadataPath, finalBinaryPayload);
@@ -104,7 +100,7 @@ export async function level2Enc(props: MetadataHandler, password: Buffer, output
   const passwordKey = (await scryptAsync(password, salt, 32)) as Buffer;
 
   const recoveryPhrase = generateMnemonic();
-  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase);
+  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase, salt);
 
   let tpmWrappedDek: Buffer | null = null;
   let passWrap: EncryptedDataRaw | null = null;
@@ -117,21 +113,16 @@ export async function level2Enc(props: MetadataHandler, password: Buffer, output
     passWrap = encryptDataRaw(tpmWrappedDek!, passwordKey);
     backupWrap = encryptDataRaw(dek, recoveryPhraseKey);
 
-    const magicBytes = Buffer.from(MAGIC_BYTES.LEVEL2, "utf8");
-
-    const finalBinaryPayload = Buffer.concat([
-      magicBytes,
+    const timestampMs = Date.now();
+    const finalBinaryPayload = buildMetadataPayload(
+      2,
+      props.chunkName || 'default',
+      timestampMs,
       salt,
-      passWrap.iv,
-      passWrap.authTag,
-      passWrap.encryptedData,
-      backupWrap.iv,
-      backupWrap.authTag,
-      backupWrap.encryptedData,
-      metadataEnc.iv,
-      metadataEnc.authTag,
-      metadataEnc.encryptedData
-    ]);
+      passWrap,
+      backupWrap,
+      metadataEnc
+    );
 
     await fs.mkdir(path.dirname(outputPath.metadataPath), { recursive: true });
     await fs.writeFile(outputPath.metadataPath, finalBinaryPayload);
@@ -176,7 +167,7 @@ export async function level3Enc(props: MetadataHandler, password: Buffer, output
   const passwordKey = (await scryptAsync(password, salt, 32)) as Buffer;
 
   const recoveryPhrase = generateMnemonic();
-  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase);
+  const recoveryPhraseKey = mnemonicToKey(recoveryPhrase, salt);
 
   let tpmWrappedDek: Buffer | null = null;
   let passWrap: EncryptedDataRaw | null = null;
@@ -201,21 +192,16 @@ export async function level3Enc(props: MetadataHandler, password: Buffer, output
 
     backupWrap = encryptDataRaw(dek, combinedKey);
 
-    const magicBytes = Buffer.from(MAGIC_BYTES.LEVEL3, "utf8");
-
-    const finalBinaryPayload = Buffer.concat([
-      magicBytes,
+    const timestampMs = Date.now();
+    const finalBinaryPayload = buildMetadataPayload(
+      3,
+      props.chunkName || 'default',
+      timestampMs,
       salt,
-      passWrap.iv,
-      passWrap.authTag,
-      passWrap.encryptedData,
-      backupWrap.iv,
-      backupWrap.authTag,
-      backupWrap.encryptedData,
-      metadataEnc.iv,
-      metadataEnc.authTag,
-      metadataEnc.encryptedData
-    ]);
+      passWrap,
+      backupWrap,
+      metadataEnc
+    );
 
     await fs.mkdir(path.dirname(outputPath.metadataPath), { recursive: true });
     await fs.writeFile(outputPath.metadataPath, finalBinaryPayload);

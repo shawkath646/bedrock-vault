@@ -5,7 +5,7 @@ import { Label } from "@renderer/components/ui/label";
 import { Switch } from "@renderer/components/ui/switch";
 import { Button } from "@renderer/components/ui/button";
 import { CircleQuestionMark, FolderOpen, Shield, AlertTriangle } from "lucide-react";
-import type { EncryptionOptions } from "@shared/types/fileEncryption";
+import type { EncryptionOptions } from "@shared/types/file-encryption";
 import { useNavigate } from "react-router-dom";
 import { defaultOptions, encryptionLevels } from "@shared/constant/encryption-options.constants";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";

@@ -1,3 +1,5 @@
+import type { EncryptionLevel } from "./global";
+
 export interface FileKeyEntry {
     name: string;
     encName: string;
@@ -7,11 +9,10 @@ export interface FileKeyEntry {
     enc_algorithm: string;
     size: number;
     ext: string;
-    thumbnail: string;
 }
 
 export interface EncryptionOptions {
-    encryptionLevel: 1 | 2 | 3;
+    encryptionLevel: EncryptionLevel;
 
     fileOutputDirectory: string;
     recoveryPhrasePath: string;
@@ -39,22 +40,5 @@ export interface EncryptionStage {
     progress: number;
 }
 
-export interface EncryptionRecord {
-    chunkName: string;
-    path: string;
-    timestamp: string;
-}
 
-export interface DecryptedFileEntry {
-    name: string;
-    encName: string;
-    virtualPath: string;
-    size: number;
-    ext: string;
-    thumbnail: string;
-    isAvailable: boolean;
-}
 
-export type DecryptionResult = 
-    | { success: true; files: DecryptedFileEntry[]; chunkName: string }
-    | { success: false; error: string; level?: number };
