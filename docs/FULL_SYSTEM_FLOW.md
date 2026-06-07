@@ -1,9 +1,9 @@
 # Bedrock Vault — Full System Flow Documentation
 
-> **Application:** Bedrock Vault v1.0.0  
+> **Application:** Bedrock Vault v1.0.3-beta  
 > **Architecture:** Electron (Main + Renderer + Preload) with Native C++ Addon  
 > **Audience:** Developers, Auditors, Future Maintainers  
-> **Generated From:** Complete repository analysis — every step verified against actual code
+> **Generated From:** Complete codebase analysis — every step verified against actual implementation code.
 
 ---
 
@@ -12,7 +12,7 @@
 1. [System Overview](#1-system-overview)
 2. [User Entry Flow](#2-user-entry-flow)
 3. [Encryption Flow](#3-encryption-flow)
-4. [Decryption Flow](#4-decryption-flow)
+4. [Decryption & Virtual Mount Flow](#4-decryption--virtual-mount-flow)
 5. [Metadata Flow](#5-metadata-flow)
 6. [Recovery Flow](#6-recovery-flow)
 7. [Threading Flow](#7-threading-flow)
@@ -34,10 +34,11 @@ graph TB
         UI["React Pages & Components"]
         CTX["AppConfigContext"]
         RHF["React Hook Form + Zod"]
+        AL_H["useAutoLock Hook"]
     end
 
     subgraph Preload["Preload Script (contextBridge)"]
-        API["window.appWindow / appConfig / fileSelection / encryptionOptions / encryptionProgress / cloudDrive / appLogs"]
+        API["window.appWindow / appConfig / fileSelection / encryptionOptions / encryptionProgress / cloudDrive / appLogs / appDecryption"]
     end
 
     subgraph Main["Main Process (Node.js)"]
@@ -45,10 +46,13 @@ graph TB
         WM["Window Manager"]
         FS_H["File Selection Handler"]
         ENC_W["Encryption Workflow Handler"]
+        DEC_W["Decryption Workflow Handler"]
+        REC_W["Encryption Record Store"]
         ENC_O["Encryption Options Store"]
         CFG["App Config Handler"]
         LOG["Logger"]
         MISC["Shell Commands / Popup Emitter"]
+        AL_A["AutoLocker Helper"]
 
         subgraph EncryptionEngine["Encryption Engine"]
             AQ["Acquire & Validate Files"]
@@ -57,6 +61,13 @@ graph TB
             KM["Key Management (3-Level)"]
             ECJ["Encryption Change Journal"]
             EMT["Encryption Emitter"]
+        end
+
+        subgraph DecryptionEngine["Decryption Engine"]
+            DM["decryptMetadata / decryptMetadataPayload"]
+            WDS["WebDAV Server Daemon"]
+            SFS["SecureFileSystem (Virtual FS)"]
+            DKM["Decrypted Cache Map"]
         end
 
         subgraph Workers["Worker Threads (Piscina)"]
@@ -74,16 +85,21 @@ graph TB
         DISK["File System"]
         TPM_HW["TPM 2.0 Hardware"]
         CRED["Windows Credential UI"]
+        MNT["Mounted Virtual Disk (Drive Z: / Volumes)"]
     end
 
     UI -->|"ipcRenderer.invoke/send"| API
     API -->|"contextBridge"| IPC
     IPC --> FS_H
     IPC --> ENC_W
+    IPC --> DEC_W
+    IPC --> REC_W
     IPC --> ENC_O
     IPC --> CFG
     IPC --> LOG
     IPC --> MISC
+    IPC --> AL_A
+    
     ENC_W --> AQ
     ENC_W --> EF
     ENC_W --> KM
@@ -92,39 +108,51 @@ graph TB
     ENC_W --> ECJ
     ENC_W --> EMT
     EMT -->|"webContents.send"| UI
+    
+    DEC_W --> DM
+    DEC_W --> WDS
+    WDS --> SFS
+    SFS --> DKM
+    WDS --> MNT
+    
     ENC_O --> Native
     KM --> Native
+    DM --> Native
+    
     Native --> TPM_HW
     Native --> CRED
     FS_H --> DISK
     EFC --> DISK
     KM --> DISK
+    DM --> DISK
+    SFS -->|"Read Encrypted Chunks"| DISK
     LOG --> DISK
     CFG --> DISK
+    AL_H -->|"ping-activity"| AL_A
+    AL_A -->|"vault-locked-inactivity"| UI
 ```
 
 ### Process Model
 
 | Process | Technology | Role |
 |---|---|---|
-| Main Process | Node.js (Electron) | App lifecycle, IPC hub, file I/O, encryption engine, native addon loading |
-| Renderer Process | React 19, TailwindCSS 4, React Hook Form, Framer Motion | UI, form validation (client-side), navigation, progress display |
-| Preload Script | Electron contextBridge | Secure bridge — exposes typed API surface to renderer |
-| Worker Threads | Piscina thread pool | Parallel file encryption for large files (>512 KB) |
-| Native Addon | C++ (N-API, node-addon-api) | Windows Credential UI password prompt, TPM encryption/decryption |
+| Main Process | Node.js (Electron) | App lifecycle, IPC hub, file I/O, encryption engine, WebDAV server hosting, native addon loading, config and logs management |
+| Renderer Process | React 19, TailwindCSS 4, React Hook Form, Framer Motion | User interface, client-side validation, routing, activity tracking |
+| Preload Script | Electron contextBridge | Exposes secure, isolated, and typed API namespaces to the renderer |
+| Worker Threads | Piscina thread pool | Parallel file chunk encryption for large files (>512 KB) |
+| Native Addon | C++ (N-API, node-addon-api) | Windows Credential UI integration, Platform Key Storage Provider (TPM 2.0) bindings |
 
 ### Key Dependencies
 
 | Dependency | Purpose |
 |---|---|
-| `piscina` | Worker thread pool for parallel encryption |
-| `proper-lockfile` | File locking during encryption to prevent concurrent access |
-| `systeminformation` | Disk space and drive info queries |
-| `fs-extra` | Extended file system operations |
-| `zod` | Schema validation for forms and configs |
-| `react-hook-form` | Form state management with resolver-based validation |
-| `framer-motion` | UI animations |
-| `node-addon-api` | N-API bindings for native C++ addon |
+| `piscina` | Multi-threaded worker pool management for offloading large-file encryption |
+| `proper-lockfile` | Enforces mandatory file locks on source paths before processing |
+| `webdav-server` | Hosts the local, authenticated WebDAV virtual drive server |
+| `systeminformation` | Disk storage space queries for system pre-flight checks |
+| `zod` | Runtime schema validation for preferences, configuration, and state schemas |
+| `react-hook-form` | Form bindings and UI error mapping |
+| `framer-motion` | Micro-animations and interface transition effects |
 
 ---
 
@@ -152,8 +180,8 @@ flowchart TD
 **Module:** `src/main/main.ts`
 
 **Decision Points:**
-- **Single Instance Lock:** Uses `app.requestSingleInstanceLock()`. If another instance is already running, the new instance quits immediately. The existing instance receives a `second-instance` event and focuses/restores its window.
-- **Dev vs Production:** Window loads a Vite dev server URL or the built HTML file based on the `VITE_DEV_SERVER_URL` environment variable.
+* **Single Instance Check:** Uses `app.requestSingleInstanceLock()`. If locked, the secondary instance logs an exit and terminates immediately.
+* **Launch Routing:** Detects development server ports vs built production assets in `dist/renderer`.
 
 ### Renderer Bootstrap
 
@@ -173,25 +201,7 @@ flowchart TD
 
 **Module:** `src/renderer/main.tsx`, `src/renderer/App.tsx`, `src/renderer/components/SafeRouting.tsx`
 
-**Decision Points:**
-- **SafeRouting Guard:** All routes except `/setup` and `*` (NotFound) are wrapped in `<SafeRouting>`. This component checks `ctx.config.initialized`. If `false`, it redirects to `/setup` (the Setup Wizard). This ensures first-time users complete setup before accessing any feature.
-
-### Window Configuration
-
-| Property | Value |
-|---|---|
-| Dimensions | 1000×700 (fixed, not resizable) |
-| Frame | Frameless (`frame: false`) |
-| Resizable | No |
-| Fullscreenable | No |
-| Menu Bar | Auto-hidden |
-| Preload | `dist/preload/preload.mjs` |
-
-**Module:** `src/main/window-manager.ts`
-
-### Logs Window
-
-A secondary `BrowserWindow` (850×600, frameless, resizable) can be opened for viewing logs. It loads the `#/logs` hash route. Closing the main window cascades to close the logs window.
+**SafeRouting Guard:** Routes except `/setup` and `*` are wrapped in `<SafeRouting>`. If the application configuration `initialized` parameter is false, users are redirected to `/setup` (the Setup Wizard) to set up encryption directories and system options.
 
 ---
 
@@ -199,7 +209,7 @@ A secondary `BrowserWindow` (850×600, frameless, resizable) can be opened for v
 
 ### Master Encryption Workflow
 
-This is the most complex flow in the application. It is orchestrated by `handleStartEncryptionWorkflow()` in `encryption-workflow.handler.ts`.
+Orchestrated by `handleStartEncryptionWorkflow()` in `src/main/handlers/encryption/encryption-workflow.main.ts`.
 
 ```mermaid
 flowchart TD
@@ -288,67 +298,18 @@ flowchart TD
 
 ### Output Directory Resolution
 
-```mermaid
-flowchart TD
-    A["resolveOutputDirectory(baseDir)"] --> B["fs.readdir(baseDir)"]
-    B --> C{"Directory exists & non-empty?"}
-    C -->|"Empty or doesn't exist"| D["Return baseDir"]
-    C -->|"Non-empty"| E["Show dialog: 3 buttons"]
-    E --> F{"User choice?"}
-    F -->|"Overwrite (0)"| G["Return baseDir"]
-    F -->|"Create New Folder (1)"| H["Find next available 'baseDir (N)'"]
-    F -->|"Cancel (2)"| I["Return null"]
-    H --> G2["Return baseDir (N)"]
-```
-
-**Module:** `src/main/handlers/encryption/encryption-workflow.handler.ts`
-
-**Decision Points:**
-- **Overwrite vs New Folder:** When the output directory already contains files, the user is prompted with a native dialog offering three choices: overwrite existing content, create a numbered subfolder, or cancel the operation entirely.
+If the target output directory exists and is not empty, the user is prompted with an Electron dialog containing three choices:
+1. **Overwrite**: Uses the folder directly.
+2. **Create New Folder**: Resolves the next available folder name suffix (e.g. `Folder (1)`).
+3. **Cancel**: Halts the workflow and triggers an abort rollback.
 
 ### File Encryption Pipeline
 
-```mermaid
-flowchart TD
-    A["encryptFiles(params)"] --> B["Fetch encryption options"]
-    B --> C["Partition files: small (≤512KB) vs large (>512KB)"]
-    C --> D["Compute cpuConcurrency = min(4, max(1, floor(cpus/2)))"]
-    D --> E{"Any large files?"}
-    E -->|"Yes"| F["Create Piscina pool (maxThreads: cpuConcurrency)"]
-    E -->|"No"| G["Skip pool creation"]
-
-    F --> H["Create tasks for each file"]
-    G --> H
-
-    H --> I["For each file task:"]
-    I --> J{"signal.aborted?"}
-    J -->|"Yes"| K["Skip file"]
-    J -->|"No"| L["Generate random 32-byte AES key"]
-    L --> M{"encryptFileNameAndDirectory?"}
-    M -->|"Yes"| N["encName = crypto.randomUUID()"]
-    M -->|"No"| O["encName = original filename"]
-
-    N --> P["journal.recordCreated(outputPath)"]
-    O --> P
-    P --> Q{"file.size > 512KB?"}
-    Q -->|"Yes"| R["poolEncrypt(pool, params) — Worker thread"]
-    Q -->|"No"| S["inlineEncrypt(params) — Main thread"]
-
-    R --> T["Return FileKeyEntry"]
-    S --> T
-
-    T --> U["Run all tasks with concurrency limiter"]
-    U --> V["Promise.all([largeTasks(cpuConcurrency), smallTasks(50)])"]
-    V --> W["FINALLY: pool.destroy()"]
-    W --> X["Return FileKeyEntry[]"]
-```
-
-**Module:** `src/main/handlers/encryption/helpers/encrypt-files.ts`
-
-**Decision Points:**
-- **Size-Based Routing:** Files ≤512 KB are encrypted inline on the main thread. Files >512 KB are offloaded to worker threads via Piscina. This avoids the overhead of thread context-switching for small files while parallelizing large files.
-- **Concurrency Limits:** Large files: `min(4, max(1, floor(cpus/2)))` concurrent. Small files: up to 50 concurrent inline tasks.
-- **File Name Encryption:** When `encryptFileNameAndDirectory` is enabled, the output file is named with a random UUID. Otherwise, the original name is preserved with the encrypted extension.
+Large files are partitioned from small files to maximize thread efficiency:
+* **Threshold Boundary:** 512 KB (`INLINE_THRESHOLD_BYTES`).
+* **Small Files (<= 512 KB):** Processed inline on the Electron main process thread with a maximum concurrency limit of 50 tasks.
+* **Large Files (> 512 KB):** Offloaded to worker threads via **Piscina** with a concurrency limit defined as `Math.min(4, Math.max(1, Math.floor(os.cpus().length / 2)))`.
+* **Change Journal:** Tracked via `EncryptionChangeJournal`. If an error or user abort occurs, the journal removes all output files written during the session to avoid partial artifacts.
 
 ### Core File Encryption (Streaming)
 
@@ -364,7 +325,7 @@ flowchart TD
     H --> I["Pipeline: readStream → tracker → cipher → writeStream"]
     I --> J["Get authTag (16 bytes)"]
     J --> K["Append authTag to end of output file"]
-    K --> L["End writeStream, await 'finish' event"]
+    K --> L["End writeStream, Await 'finish' event"]
     L --> M["Return { ivHex, authTagHex }"]
 
     I -->|"Error"| N{"signal.aborted or AbortError?"}
@@ -372,51 +333,68 @@ flowchart TD
     N -->|"No"| P["Destroy writeStream, rethrow"]
 ```
 
-**Encrypted File Binary Format:**
-
+**Encrypted File Binary Layout:**
 ```
 ┌──────────────┬─────────────────────────┬──────────────────┐
 │  IV (12 B)   │  Encrypted Data (var)   │  AuthTag (16 B)  │
 └──────────────┴─────────────────────────┴──────────────────┘
 ```
 
-**Module:** `src/main/handlers/encryption/helpers/encrypt-file-core.ts`
-
 ---
 
-## 4. Decryption Flow
+## 4. Decryption & Virtual Mount Flow
 
-> [!IMPORTANT]
-> **IMPLEMENTATION UNCLEAR — REQUIRES MANUAL REVIEW**
-> 
-> No dedicated decryption handler, IPC channel, or UI page for decryption was found in the current codebase. The "Open Vault" menu item on the Home page is explicitly marked as `disabled: true` in `MenuCard.tsx`. While the `key-management.ts` module contains the cryptographic primitives needed for decryption (metadata deserialization, key unwrapping), there is no user-facing decryption workflow implemented at this time. The `level1Enc` / `level2Enc` / `level3Enc` functions only handle the encryption direction; no corresponding `level1Dec` / `level2Dec` / `level3Dec` functions exist.
+Decryption reads metadata, initializes a local virtual WebDAV server, and mounts the vault on the host operating system, performing on-the-fly streaming decryption.
+
+```mermaid
+flowchart TD
+    A["User triggers Open Vault"] --> B["Select chunk directory"]
+    B --> C["Check directory contains 'v' metadata"]
+    C --> D["Native Prompt: CredUIPromptForWindowsCredentialsW"]
+    D --> E["decryptMetadataPayload(metadataBuffer, password)"]
+    E --> F["Parse Magic Bytes and check TPM (Level 2/3)"]
+    F --> G["Derive Password Key via Scrypt and decrypt DEK"]
+    G --> H["Deserialize metadata bytes to memory structures"]
+    H --> I["Start local WebDAV Server (random port, 32-byte token)"]
+    I --> J["Mount virtual drive (Drive Z: on Win / Volumes on macOS)"]
+    J --> K["Renderer navigates to /decrypted-content page"]
+```
+
+### Steps in the Decryption Pipeline
+
+1. **Vault Importing:** The user selects an encrypted vault directory. The handler verifies the metadata file named `v` exists.
+2. **Native Password Collection:** If a password is not cached, the application halts the main UI and calls `askPassword()`. The native compiled C++ module displays the secure OS-level credential dialog (`CredUIPromptForWindowsCredentialsW`).
+3. **DEK Wrapping Resolution:**
+   * **Level 1:** Uses the Scrypt-derived key to decrypt `passWrap` and extract the DEK.
+   * **Level 2:** Decrypts `passWrap` to get the TPM-wrapped DEK, then passes it to the physical TPM via Windows NCrypt (`tpmDecrypt`) to recover the DEK.
+   * **Level 3:** Recovers the DEK via the TPM and password. For recovery-phrase-only workflows, combines the derived PBKDF2 phrase key and the physical `key_file` payload using `HMAC-SHA256` to decrypt `backupWrap`.
+4. **Metadata Deserialization:** The decrypted binary payload is parsed using the matching binary deserialization protocol. It loads files, virtual directories, and key mappings into memory cache maps:
+   * `decryptedItemsMap`: Map of virtual file names and structures.
+   * `childrenIndexMap`: Directory layouts.
+   * `secureFileKeysMap`: Wires keys and IVs for streaming decryption.
+5. **Local WebDAV Daemon Lifecycle:**
+   * Spins up a `webdav-server` instance bound to localhost (`127.0.0.1`) on a random available port.
+   * Restricts server path access using a secure, randomized 32-byte hexadecimal `mountToken` (e.g. `http://127.0.0.1:53213/f8c2e9...`).
+   * Bypasses client browser authentication prompts by mapping HTTP `401` responses to `403` and dropping `WWW-Authenticate` response headers.
+6. **OS Mounting:**
+   * **Windows:** Executes `net use Z: http://127.0.0.1:${port}/${mountToken} /persistent:no` (falls back to UNC path format `\\\\127.0.0.1@${port}\\DavWWWRoot...` if standard mount fails).
+   * **macOS:** Creates `/Volumes/SecureVault` mount point and executes `mount_webdav`.
+7. **On-the-Fly Stream Decryption (`SecureFileSystem`):**
+   * When the OS requests a read operation on a file inside the mounted drive, `SecureFileSystem._openReadStream` maps the virtual path to the corresponding physical encrypted file (`encName`).
+   * Opens the file handle and reads the trailing 16-byte authentication tag (`12 + size`).
+   * Instantiates a file read stream starting at byte index 12 (skipping the IV) and ending at `12 + size - 1`.
+   * Pipes the file stream directly into `crypto.createDecipheriv('aes-256-gcm', key, iv)` bound with the authentication tag.
+   * Outputs the decrypted stream directly to the OS file reader.
+8. **Strict Read-Only Enforcement:**
+   * Any writing, renaming, moving, or deleting requests directed at the virtual drive automatically fail, returning `webdav.Errors.Locked`.
 
 ---
 
 ## 5. Metadata Flow
 
-### Metadata Serialization (Binary Protocol)
+### Metadata Serialization Protocol
 
-The metadata system uses a custom binary serialization protocol to avoid V8 string objects lingering in memory (a security measure for sensitive data).
-
-```mermaid
-flowchart TD
-    A["serializeMetadata(metadata)"] --> B["Write chunkName (length-prefixed UTF-8 string)"]
-    B --> C["Write fileCount (uint32)"]
-    C --> D["For each FileKeyEntry:"]
-    D --> E["Write name (length-prefixed)"]
-    E --> F["Write encName (length-prefixed)"]
-    F --> G["Write virtualPath (length-prefixed)"]
-    G --> H["Write key (32 bytes raw — no encoding)"]
-    H --> I["Write iv (12 bytes raw — no encoding)"]
-    I --> J["Write enc_algorithm (length-prefixed)"]
-    J --> K["Write size (BigInt64)"]
-    K --> L["Write ext (length-prefixed)"]
-    L --> M["Write thumbnail (length-prefixed)"]
-    M --> N["Return concatenated Buffer"]
-```
-
-**Binary Wire Format:**
+To prevent raw file names, key lists, and IV maps from lingering in the V8 heap as garbage-collected string variables, the application uses a binary serialization format:
 
 ```
 ┌──────────────────────────┐
@@ -434,90 +412,51 @@ flowchart TD
 │    algorithm len + data  │
 │    size (BigInt64)       │
 │    ext len + data        │
-│    thumbnail len + data  │
 ├──────────────────────────┤
 │  Entry 2: ...            │
 └──────────────────────────┘
 ```
 
-**Module:** `src/main/handlers/encryption/helpers/key-management.ts`
+**Module:** `src/main/handlers/crypto-core.helpers.ts`
 
-### Level-Specific Metadata Encryption
+### Metadata Encryption Wrapper Layouts
 
-After file encryption completes, the file key entries are serialized into the binary format above, then encrypted and written to disk according to the chosen encryption level:
+Once serialized, the metadata buffer is encrypted with a random 32-byte DEK and packed with Level-specific wraps:
 
-**Level 1 (Password-Only):**
-```
-┌────────────────────────────────────────────────┐
-│ Magic: "BEV1" (4 bytes)                        │
-│ Salt (16 bytes)                                │
-│ passWrap.iv (12 bytes)                         │
-│ passWrap.authTag (16 bytes)                    │
-│ passWrap.encryptedData (32 bytes — wrapped DEK)│
-│ backupWrap.iv (12 bytes)                       │
-│ backupWrap.authTag (16 bytes)                  │
-│ backupWrap.encryptedData (32 bytes)            │
-│ metadata.iv (12 bytes)                         │
-│ metadata.authTag (16 bytes)                    │
-│ metadata.encryptedData (variable)              │
-└────────────────────────────────────────────────┘
-```
-
-**Level 2 (Password + TPM):**
-- Same structure but with magic `"BVK2"`.
-- The DEK is first encrypted by the TPM (`tpmEncrypt(dek)` → 256 bytes), then password-wrapped.
-- `passWrap.encryptedData` is 256 bytes (TPM-encrypted DEK).
-
-**Level 3 (Password + TPM + Key File):**
-- Same as Level 2 but with magic `"BVK3"`.
-- Additionally generates a 64-byte random key file with header `"BVK3_KEYFILE"`.
-- Recovery key is `HMAC-SHA256(recoveryPhraseKey, keyFilePayload)`.
-- Produces three output files: metadata file, recovery phrase text file, and binary key file.
-
-**Module:** `src/main/handlers/encryption/helpers/key-management.ts`
+* **Level 1 (Standard Software):**
+  * Magic Bytes: `"BEV1"` (4 bytes)
+  * Level indicator (1 byte)
+  * BigInt timestamp (8 bytes)
+  * Length-prefixed chunk name
+  * Salt (16 bytes)
+  * `passWrap` (12-byte IV + 16-byte GCM Tag + 32-byte encrypted DEK)
+  * `backupWrap` (12-byte IV + 16-byte GCM Tag + 32-byte encrypted DEK)
+  * `metadataEnc` (12-byte IV + 16-byte GCM Tag + variable encrypted metadata payload)
+* **Level 2 (Hardware-Bound TPM):**
+  * Magic Bytes: `"BVK2"`
+  * Similar structure, but `passWrap.encryptedData` is a 256-byte buffer containing the TPM-encrypted DEK wrapped with the user's password key.
+* **Level 3 (Strict Hardware-Bound + Dual-Factor):**
+  * Magic Bytes: `"BVK3"`
+  * Generates an additional physical 64-byte key file (`BVK3_KEYFILE` header + payload).
+  * `backupWrap` is encrypted with a combined key derived via `HMAC-SHA256(recoveryPhraseKey, keyfilePayload)`.
 
 ---
 
 ## 6. Recovery Flow
 
-### Recovery Phrase Generation
+### Key Derivation Primitives
 
-```mermaid
-flowchart TD
-    A["generateMnemonic()"] --> B["Load word-list.json (2048 BIP39-style words)"]
-    B --> C["Generate 12 random indices via crypto.randomInt()"]
-    C --> D["Map indices to words"]
-    D --> E["Return space-separated 12-word phrase"]
-    E --> F["132 bits of entropy (2^132 combinations)"]
-```
-
-### Recovery Key Derivation
-
-```mermaid
-flowchart TD
-    A["mnemonicToKey(mnemonic)"] --> B["Normalize: trim, lowercase, collapse whitespace"]
-    B --> C["PBKDF2(mnemonic, 'bedrock-vault-salt-recovery', 100000, 32, 'sha256')"]
-    C --> D["Return 32-byte Buffer (AES-256 key)"]
-```
-
-### Per-Level Recovery Process
-
-| Level | Recovery Inputs | Process |
-|---|---|---|
-| Level 1 | Recovery phrase (12 words) | Derive recovery key from mnemonic → decrypt `backupWrap` → get DEK → decrypt metadata |
-| Level 2 | Recovery phrase (12 words) | Same as Level 1 — recovery wraps the raw DEK directly (bypasses TPM) |
-| Level 3 | Recovery phrase (12 words) + Key file | Derive mnemonic key → load key file → `HMAC-SHA256(mnemonicKey, keyFilePayload)` → decrypt `backupWrap` → get DEK → decrypt metadata |
-
-> [!WARNING]
-> The actual user-facing recovery/decryption workflow is **not yet implemented** in the UI. The recovery primitives exist in `key-management.ts` and `mnemonic.ts`, but no IPC handler or renderer page invokes them.
-
-**Module:** `src/main/utils/mnemonic.ts`, `src/main/handlers/encryption/helpers/key-management.ts`
+* **Mnemonic Phrase Generation:** Randomly selects 12 words from a 2048-word BIP39 dictionary in `word-list.json` using `crypto.randomInt()`, producing 132 bits of cryptographic entropy.
+* **Mnemonic Key Derivation:** Uses PBKDF2 with 100,000 iterations, a SHA-256 digest, and a static salt `bedrock-vault-salt-recovery` to derive a 32-byte recovery key.
+* **Level 3 Key Combining:** Utilizes a SHA-256 HMAC of the 64-byte keyfile payload with the recovery key as the HMAC password.
 
 ---
 
 ## 7. Threading Flow
 
-### Thread Pool Architecture
+### Piscina Worker Pool Orchestration
+
+To maintain 60 FPS UI performance in the renderer, CPU-heavy file encryption streams are offloaded to background threads:
 
 ```mermaid
 flowchart TD
@@ -543,287 +482,65 @@ flowchart TD
     P --> Q["pool.destroy()"]
 ```
 
-**Concurrency Computation:**
-```
-cpuConcurrency = min(4, max(1, floor(os.cpus().length / 2)))
-```
-
-Example: 8-core CPU → `min(4, max(1, 4))` = 4 threads.
-
-**Worker Entry Point:** `src/main/handlers/encryption/helpers/run-pool-job.ts`  
-**Worker Implementation:** Calls `encryptFileStream()` from `encrypt-file-core.ts`, reports progress via `MessagePort`.
-
-**Progress Communication:**
-- Workers send `{ type: 'progress', percent: number }` via `MessagePort`.
-- Main thread receives these on `port1` and calls `updateProgress()`.
-- `emitFileProgress()` throttles updates to the renderer at 150ms intervals (~6.6 FPS).
-
-**Module:** `src/main/handlers/encryption/helpers/encrypt-files.ts`, `src/main/handlers/encryption/helpers/run-pool-job.ts`
+**Progress Throttling:** Progress updates are gathered from the main/worker threads and throttled via `THROTTLE_INTERVAL_MS` (150ms) before being sent to the React renderer, avoiding IPC congestion.
 
 ---
 
 ## 8. IPC Flow
 
-### Complete IPC Channel Map
+### Register Channels (`src/main/ipc-handler.ts`)
 
-All IPC channels are registered in `src/main/ipc-handler.ts` via `ipcMain.handle()`.
+#### File Selection
+* `get-selected-files-state` → Retrieves selected files list and configuration.
+* `save-selected-files-options` → Saves checkboxes/filtering preferences.
+* `add-selected-files` / `add-selected-folder` → Appends files to the selection.
+* `remove-selected-item` / `clear-selected-items` → Removes selection entries.
+* `get-current-path-files` → Queries file list for virtual folder navigation.
 
-#### File Selection Channels
+#### Encryption Config & Launch
+* `get-encryption-options` / `save-encryption-options` → Manages preferences.
+* `select-encrypted-output-directory` → Opens directory save dialog.
+* `select-recovery-phrase-save-path` / `select-file-key-save-path` → Dialog handlers.
+* `prompt-and-set-password` → Invokes native password prompt.
+* `has-encryption-password` / `clear-encryption-password` → Caching checks.
+* `is-tpm-available` / `is-software-ksp-available` → Hardware checks.
+* `start-encryption-flow` / `abort-encryption-flow` → Lifecycle handlers.
 
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `add-selected-files` | Renderer → Main | `handleFileSelectionAddFiles` | `void` |
-| `add-selected-folder` | Renderer → Main | `handleFileSelectionAddFolder` | `void` |
-| `remove-selected-item` | Renderer → Main | `handleFileSelectionRemoveItem` | `void` |
-| `clear-selected-items` | Renderer → Main | `clearSelectedItems` | `void` |
-| `get-selected-files-state` | Renderer → Main | `fetchSelectedFilesState` | `SelectedFilesState` |
-| `get-current-path-files` | Renderer → Main | `fetchCurrentPathSelectedFiles` | `SelectedFile[]` |
-| `save-selected-files-options` | Renderer → Main | `updateFileSelectionOptions` | `SaveResult<FileSelectionOptions>` |
+#### Decryption & Drive Mounting
+* `decryption:decrypt-metadata` → Validates, decrypts, and mounts WebDAV.
+* `decryption:get-current-path-files` → Lists files inside the mounted vault.
+* `decryption:open-vault-file` → Maps path to virtual drive and opens.
+* `decryption:lock-vault` → Unmounts WebDAV drive and sanitizes memory.
+* `start-security-timer` / `stop-security-timer` (IPC On) → Manages idle timer.
+* `ping-activity` (IPC On) → Resets the auto-lock security timer.
 
-#### Encryption Options Channels
-
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `get-encryption-options` | Renderer → Main | `fetchEncryptionOptions` | `EncryptionOptions` |
-| `save-encryption-options` | Renderer → Main | `updateEncryptionOptions` | `SaveResult<EncryptionOptions>` |
-| `select-encrypted-output-directory` | Renderer → Main | `selectEncryptionOutputDirectory` | `string \| null` |
-| `select-recovery-phrase-save-path` | Renderer → Main | `selectRecoveryPhraseSavePath` | `string \| null` |
-| `select-file-key-save-path` | Renderer → Main | `selectFileKeySavePath` | `string \| null` |
-| `prompt-and-set-password` | Renderer → Main | `setEncryptionPassword` | `boolean` |
-| `has-encryption-password` | Renderer → Main | `hasEncryptionPassword` | `boolean` |
-| `clear-encryption-password` | Renderer → Main | `clearCachedPassword` | `void` |
-| `is-tpm-available` | Renderer → Main | `isTpmAvailable` | `boolean` |
-| `is-software-ksp-available` | Renderer → Main | `isSoftwareKspAvailable` | `boolean` |
-
-#### Encryption Execution Channels
-
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `start-encryption-flow` | Renderer → Main | `handleStartEncryptionWorkflow` | `void` |
-| `abort-encryption-flow` | Renderer → Main | `abortEncryption` | `void` |
-
-#### Main → Renderer Event Channels
-
-| Channel | Direction | Payload |
-|---|---|---|
-| `encryption-stage-update` | Main → Renderer | `EncryptionStage { type, message, progress }` |
-| `encryption-file-progress` | Main → Renderer | `EncryptionProgress[]` (sorted: encrypting first) |
-| `popup:show` | Main → Renderer | `PopupPayload { type, message, closable }` |
-| `log-updated` | Main → Renderer | `void` (notification only) |
-
-#### App Configuration Channels
-
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `get-app-config` | Renderer → Main | `fetchAppConfiguration` | `AppConfig` |
-| `save-app-config` | Renderer → Main | `updateAppConfiguration` | `AppConfig` |
-
-#### Window Management Channels
-
-| Channel | Direction | Handler |
-|---|---|---|
-| `window:minimize` | Renderer → Main | `BrowserWindow.minimize()` |
-| `window:close` | Renderer → Main | `BrowserWindow.close()` |
-| `open-dev-tools` | Renderer → Main | `openDevTools({ mode: 'detach' })` |
-
-#### Shell & Miscellaneous Channels
-
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `open-file-with-sys-app` | Renderer → Main | `openPathWithSysApp` | `void` |
-| `open-external-url` | Renderer → Main | `openExternalUrl` | `void` |
-| `get-app-update-info` | Renderer → Main | `getAppUpdateInfo` | Stub object |
-| `get-cloud-status` | Renderer → Main | `getCloudStatus` | Stub `CloudStatus` |
-
-#### Logging Channels
-
-| Channel | Direction | Handler | Return Type |
-|---|---|---|---|
-| `app-log` | Renderer → Main | `logRenderer` | `void` |
-| `fetch-logs` | Renderer → Main | `fetchLogs` | `{ main, renderer, logsDir }` |
-| `view-logs-folder` | Renderer → Main | `viewLogsFolder` | `void` |
-| `open-logs-window` | Renderer → Main | `createLogsWindow` | `void` |
-
-### Preload Bridge Architecture
-
-```mermaid
-flowchart LR
-    subgraph Renderer["Renderer (Sandboxed)"]
-        R1["window.fileSelection.addFiles()"]
-        R2["window.encryptionProgress.onStageUpdate(cb)"]
-    end
-
-    subgraph Preload["Preload (contextBridge)"]
-        P1["ipcRenderer.invoke('add-selected-files', ...)"]
-        P2["ipcRenderer.on('encryption-stage-update', cb)"]
-    end
-
-    subgraph Main["Main Process"]
-        M1["ipcMain.handle('add-selected-files', handler)"]
-        M2["mainWindow.webContents.send('encryption-stage-update', data)"]
-    end
-
-    R1 --> P1 --> M1
-    M2 --> P2 --> R2
-```
-
-**Module:** `src/preload/preload.ts`
-
-The preload exposes 7 namespaces on `window`: `appWindow`, `appConfig`, `fileSelection`, `encryptionOptions`, `encryptionProgress`, `cloudDrive`, `appLogs`. Each namespace maps 1:1 to IPC channels.
+#### Registry Records
+* `encryption-record:get-records` → Loads records from `record.json`.
+* `encryption-record:add-record` → Imports vault records.
+* `encryption-record:remove-record` → Deletes records and optionally trashes target folders.
 
 ---
 
 ## 9. Validation Flow
 
-### Multi-Layer Validation Architecture
+### Path Security Rules (`validatePath` / `ensureIsFilePath`)
 
-```mermaid
-flowchart TD
-    A["User Input (Renderer)"] --> B["Client-Side: React Hook Form + zodResolver"]
-    B --> C["IPC: invoke('save-encryption-options', data)"]
-    C --> D["Server-Side: Zod Schema Validation (Main Process)"]
-    D --> E{"Validation passed?"}
-    E -->|"Yes"| F["Return { success: true, data }"]
-    E -->|"No"| G["Return { success: false, errors: Record<string, string[]> }"]
-    G --> H["Renderer: Map errors to React Hook Form setError()"]
-```
+Paths are validated to prevent directory traversal and system file overwrites:
+* **Null Byte Check:** Paths containing `\0` are rejected.
+* **Windows Exclusions:** Rejects paths targeting `C:\Windows`, `C:\Program Files`, `C:\ProgramData`, and user `AppData` directories.
+* **Unix Exclusions:** Rejects paths targeting `/etc`, `/var`, `/usr`, `/bin`, `/sbin`, `/dev`, `/proc`, `/sys`, `/root`, and hidden paths.
 
-### Encryption Options Validation (Zod Schema)
+### Pre-Flight Resource Check
 
-**Schema:** `EncryptionOptionsSchema` in `src/main/handlers/encryption/encryption-options.store.ts`
-
-| Field | Type | Validation Rules |
-|---|---|---|
-| `encryptionLevel` | number | Must be 1, 2, or 3 |
-| `fileOutputDirectory` | string | Validated by `validatePath()` |
-| `recoveryPhrasePath` | string | Validated by `validatePath()` |
-| `recoveryPhraseFilePath` | string (optional) | Validated by `validatePath()` if present |
-| `encryptFileNameAndDirectory` | boolean | Required |
-| `addToCloudSync` | boolean | Required |
-| `addTrap` | boolean | Required |
-| `cleanupAfterEncryption` | boolean | Required |
-
-### File Selection Options Validation (Zod Schema)
-
-**Schema:** `FileSelectionOptionsSchema` in `src/main/handlers/file-selection/file-selection.utils.ts`
-
-| Field | Type | Validation Rules |
-|---|---|---|
-| `newChunk` | boolean | Required |
-| `chunkName` | string | If `newChunk` is true, must be non-empty (`.refine()`) |
-| `includeSubFolders` | boolean | Required |
-| `maxSize` | number | Must be ≥ 0 |
-| `documents` | boolean | Required |
-| `audio` | boolean | Required |
-| `video` | boolean | Required |
-| `pictures` | boolean | Required |
-| `programs` | boolean | Required |
-| `others` | boolean | Required |
-
-### App Config Validation (Zod Schema)
-
-**Schema:** `AppConfigSchema` in `src/main/handlers/config/app-config.handler.ts`
-
-| Field | Type | Validation Rules |
-|---|---|---|
-| `initialized` | boolean | Required |
-| `theme` | enum | `'light' \| 'dark' \| 'system'` |
-| `shouldUpdate` | boolean | Required |
-
-### Path Validation
-
-**Function:** `validatePath()` in `src/main/utils/paths.ts`
-
-| Check | Condition | Result |
-|---|---|---|
-| Empty/null | `!inputPath` or empty string | Reject |
-| Null bytes | Contains `\0` | Reject (path injection attack) |
-| Linux system paths | Matches `/etc`, `/var`, `/usr`, `/bin`, `/sbin`, `/dev`, `/proc`, `/sys`, `/root`, or `~/.hidden` | Reject |
-| Windows system paths | Matches `C:\Windows`, `C:\Program Files`, `C:\ProgramData`, or `AppData` | Reject |
-| Valid | None of the above | Accept |
-
-### File Type Filtering
-
-**Function:** `isFileTypeAllowed()` in `src/main/handlers/file-selection/file-selection.utils.ts`
-
-Checks file extension against category maps:
-
-| Category | Extensions |
-|---|---|
-| `documents` | `.pdf, .doc, .docx, .txt, .xlsx, .csv, .rtf` |
-| `audio` | `.mp3, .wav, .ogg, .flac, .m4a` |
-| `video` | `.mp4, .mkv, .avi, .mov, .wmv` |
-| `pictures` | `.jpg, .jpeg, .png, .gif, .webp, .svg` |
-| `programs` | `.exe, .msi, .app, .sh, .bat, .dmg, .pkg` |
-| `others` | Any extension NOT in the above categories |
-
-**Module:** `src/main/handlers/file-selection/file-selection.constants.ts`
-
-### Pre-Encryption System Resource Validation
-
-**Function:** `checkSystemResources()` in `src/main/utils/checkSystemResources.ts`
-
-```mermaid
-flowchart TD
-    A["checkSystemResources(outputDir, totalSize)"] --> B["getDriveInfoFromPath(outputDir)"]
-    B --> C{"available disk space ≥ totalSize?"}
-    C -->|"No"| D["Return { ok: false, fatalMessage: 'Insufficient disk space' }"]
-    C -->|"Yes"| E["systeminformation.mem()"]
-    E --> F{"available RAM ≥ 256 MB?"}
-    F -->|"No"| G["Add warning: 'Low memory'"]
-    F -->|"Yes"| H["os.cpus()"]
-    H --> I{"cpus.length > 1?"}
-    I -->|"No"| J["Add warning: 'Single core detected'"]
-    I -->|"Yes"| K["Return { ok: true, warnings }"]
-    G --> K
-    J --> K
-```
+* **Space Check:** Target drive must contain free space >= total source size.
+* **RAM Check:** Assesses system memory; issues a warning if free memory is < 256 MB.
+* **CPU Check:** Emits a warning if a single-core CPU is detected (disables Piscina load scaling).
 
 ---
 
 ## 10. Error Handling Flow
 
-### Error Handling Strategy by Layer
-
-```mermaid
-flowchart TD
-    subgraph Renderer["Renderer Process"]
-        R1["Try/catch around IPC calls"]
-        R2["React Hook Form error mapping"]
-        R3["UI error states (failed items list)"]
-    end
-
-    subgraph Preload["Preload"]
-        P1["Transparent pass-through (no error handling)"]
-    end
-
-    subgraph Main["Main Process"]
-        M1["Zod validation → SaveResult<T>"]
-        M2["Try/catch in handlers → log + return defaults"]
-        M3["EncryptionChangeJournal → rollback on failure"]
-        M4["AbortController → USER_ABORTED signal"]
-    end
-
-    R1 --> P1 --> M1
-    R1 --> P1 --> M2
-    M3 --> R3
-    M4 --> R3
-```
-
-### Encryption Error Handling (Detailed)
-
-| Error Source | Detection | Response | User Impact |
-|---|---|---|---|
-| No files selected | `selectedFiles.length === 0` | Throw → FAILED stage | Error popup |
-| User cancelled output dir | `resolveOutputDirectory() === null` | Throw USER_ABORTED → ABORT stage | Cancellation message |
-| No valid files after validation | `lockedFiles.length === 0` | Throw → FAILED stage | Error popup |
-| Insufficient disk space | `checkSystemResources().ok === false` | Throw fatal → FAILED stage | Error popup with size info |
-| Individual file encryption failure | Per-file try/catch in task | Mark file as failed, continue others | Warning + failed items list |
-| User abort during encryption | `signal.aborted` checked at 4 points | Throw USER_ABORTED → rollback created files | Cancellation message |
-| Password not cached | `getCachedPassword() === null` | Throw → FAILED stage | Error popup |
-| TPM unavailable (Level 2/3) | Native addon check | Determined at options configuration time | UI disables level 2/3 |
-
-### Transaction Rollback (Change Journal)
+### Transaction Integrity & Failure Rollback
 
 ```mermaid
 flowchart TD
@@ -836,85 +553,27 @@ flowchart TD
     G --> H["Clear journal array"]
 ```
 
-**Module:** `src/main/handlers/encryption/helpers/encryption-change-journal.ts`
+### Config Recovery Strategies
 
-### Config Error Recovery
-
-| Scenario | Handler | Recovery |
-|---|---|---|
-| Config file missing (`ENOENT`) | `fetchAppConfiguration()` | Return default config silently |
-| Config file corrupted (parse error) | `fetchAppConfiguration()` | Log error, return default config |
-| Encryption options file corrupted | `fetchEncryptionOptions()` | Log error, **delete corrupt file**, return defaults |
-| Selected files file corrupted | `loadPersistedSelectionState()` | Return default state (empty selection) |
-| Legacy selected files format | `parsePersistedSelectionState()` | Auto-migrate from array format to new format |
+* **Config Missing (`ENOENT`):** Automatically initializes `config.json` with default theme and inactivity limits.
+* **Preferences Corrupted:** Deletes the invalid Zod structure from `userData` and writes default options.
+* **Select State Invalid:** Wipes selections and resets to an empty queue.
 
 ---
 
 ## 11. Logging Flow
 
-### Logging Architecture
-
-```mermaid
-flowchart TD
-    subgraph Renderer["Renderer Process"]
-        RL["renderer logger: logger.info/warn/error(op, msg)"]
-        RL --> RP["window.appLogs.log(type, op, msg)"]
-    end
-
-    subgraph Preload["Preload"]
-        RP --> IPC["ipcRenderer.invoke('app-log', type, op, msg)"]
-    end
-
-    subgraph Main["Main Process"]
-        ML["main logger: logger.info/warn/error(op, msg)"]
-        IPC --> RH["logRenderer(event, type, op, msg)"]
-        ML --> WL["writeLog('main', type, op, msg)"]
-        RH --> WL2["writeLog('renderer', type, op, msg)"]
-    end
-
-    WL --> FILE["Append to main-{timestamp}.log"]
-    WL2 --> FILE2["Append to renderer-{timestamp}.log"]
-    WL --> BROADCAST["webContents.send('log-updated') to ALL windows"]
-    WL2 --> BROADCAST
-```
-
-### Log File Structure
-
-**Location:** `{userData}/logs/`
-
-| File | Content |
-|---|---|
-| `main-{ISO timestamp}.log` | Main process logs |
-| `renderer-{ISO timestamp}.log` | Renderer process logs |
-| `main-latest.log` | Symlink → current main log |
-| `renderer-latest.log` | Symlink → current renderer log |
-
-**Log Line Format:**
-```
-2026-06-03T06:14:34.123Z [INFO ] Navigation Navigated to /file-selection
-2026-06-03T06:14:35.456Z [WARN ] SystemResources Low memory detected: 200 MB available
-2026-06-03T06:14:36.789Z [ERROR] EncryptionWorkflow Failed to encrypt file: access denied
-```
-
-**Log Levels:** `INFO`, `WARN`, `ERROR` (defined as `LogType` union in `src/main/utils/logger.ts`)
-
-### Log Viewer UI
-
-**Page:** `src/renderer/pages/Logs/page.tsx`
-
-Features:
-- Fetches logs via `window.appLogs.fetchLogs()` returning `{ main, renderer, logsDir }`.
-- Real-time updates via `window.appLogs.onLogUpdate(callback)`.
-- Open logs folder in system explorer via `window.appLogs.viewFolder()`.
-- Open logs in a separate window via `window.appLogs.openWindow()` → creates logs window at `#/logs` route.
-
-**Module:** `src/main/utils/logger.ts`
+* **Dual Log Files:** Written to `{userData}/logs/`.
+  * `main-{timestamp}.log`: Electron backend logs.
+  * `renderer-{timestamp}.log`: React user interface logs.
+* **Format:** `[TIMESTAMP] [SEVERITY] [NAMESPACE] MESSAGE`
+* **Renderer Log Transport:** Renderer logs are stringified and transported via the `app-log` channel to avoid serialization circular-reference blockages in Node.
 
 ---
 
 ## 12. Security Flow
 
-### Password Handling Security Model
+### Password Lifespan & Memory Zeroing
 
 ```mermaid
 flowchart TD
@@ -933,206 +592,16 @@ flowchart TD
     L --> M["Return true"]
 ```
 
-**Security Properties:**
-1. **Buffer-based storage:** Password is stored as a `Buffer`, not a JavaScript `string`. Buffers can be explicitly wiped with `.fill(0)`, while strings are immutable and may linger in V8's heap.
-2. **Secure wipe on reuse:** Before caching a new password, the old buffer is zeroed.
-3. **Wipe after use:** In the `finally` block of `handleStartEncryptionWorkflow()`, `clearCachedPassword()` is called, which zeroes and nulls the buffer.
-4. **Never stored to disk:** The password only exists in memory during the encryption workflow. It is never persisted.
-5. **Native credential dialog:** Uses Windows `CredUIPromptForWindowsCredentialsW`, which provides OS-level secure input (no keylogging via browser devtools, input is not in DOM).
+* **Zero Memory Operations:** All cryptographic keys, IVs, wrapping variables, and password buffers are allocated as raw Node `Buffer` instances (not strings) and actively zeroed out using `Buffer.fill(0)` and native C++ `SecureZeroMemory` upon completion of the workflow.
 
-### Key Material Lifecycle
+### Auto-Lock Security Lifecycle
 
-```mermaid
-flowchart TD
-    A["Password cached (Buffer)"] --> B["scryptSync(password, salt, 32) → passwordKey"]
-    B --> C["generateMnemonic() → 12 words"]
-    C --> D["mnemonicToKey(mnemonic) → recoveryPhraseKey"]
-    D --> E["crypto.randomBytes(32) → DEK"]
-    E --> F["Encrypt metadata with DEK"]
-    F --> G["Encrypt DEK with passwordKey → passWrap"]
-    G --> H["Encrypt DEK with recoveryKey → backupWrap"]
-    H --> I["Write passWrap + backupWrap + encrypted metadata to disk"]
-    I --> J["FINALLY: Zero ALL buffers"]
-
-    J --> K["password.fill(0)"]
-    J --> L["passwordKey.fill(0)"]
-    J --> M["recoveryPhraseKey.fill(0)"]
-    J --> N["DEK.fill(0)"]
-    J --> O["All wrap fields .fill(0)"]
-    J --> P["All per-file keys .fill(0)"]
-```
-
-**Module:** `src/main/handlers/encryption/helpers/key-management.ts`
-
-### Cryptographic Primitives
-
-| Operation | Algorithm | Parameters |
-|---|---|---|
-| File encryption | AES-256-GCM | 32-byte key, 12-byte random IV, 16-byte auth tag |
-| Metadata encryption | AES-256-GCM | 32-byte DEK, 12-byte random IV |
-| Password key derivation | scrypt | N=131072 (2^17), r=8, p=1, keyLen=32, maxmem=256MB |
-| Recovery key derivation | PBKDF2 | 100,000 iterations, SHA-256, salt="bedrock-vault-salt-recovery" |
-| Mnemonic generation | crypto.randomInt | 12 words from 2048-word BIP39 list (132 bits entropy) |
-| TPM encryption (Level 2/3) | RSA (via NCrypt) | TPM Platform Crypto Provider, PKCS1 padding |
-| Key file HMAC (Level 3) | HMAC-SHA256 | key=recoveryPhraseKey, data=keyFilePayload |
-
-### File Locking (Concurrent Access Prevention)
-
-```mermaid
-flowchart TD
-    A["acquireAndValidateFiles(files)"] --> B["Process in batches of 50"]
-    B --> C["For each file:"]
-    C --> D["Validate actualPath exists"]
-    D --> E["fs.stat() — confirm is regular file"]
-    E --> F["lockFile.lock(actualPath) — proper-lockfile"]
-    F --> G{"Lock acquired?"}
-    G -->|"Yes"| H["Add release() to file object"]
-    G -->|"No (file in use)"| I["skippedCount += 1"]
-    H --> J["Accumulate totalSize"]
-
-    K["After encryption (finally block)"] --> L["releaseAllLocks(files)"]
-    L --> M["Promise.allSettled(file.release() for each)"]
-```
-
-**Module:** `src/main/handlers/encryption/helpers/acquire-and-validate-files.ts`
-
-### Shell Command Security
-
-**URL Opening (`openExternalUrl`):**
-1. Parse URL with `new URL()`.
-2. **Protocol whitelist:** Only `http:` and `https:` allowed. Blocks `file:`, `javascript:`, `data:`, etc.
-3. **Domain allowlist:** `['github.com', 'shawkath646.pro', 'cloudburstlab.vercel.app']`. Subdomains allowed.
-
-**File Opening (`openPathWithSysApp`):**
-1. Fetch all currently selected files via `fetchAllSelectedItems()`.
-2. Verify that the requested `filePath` matches the `actualPath` of at least one selected file.
-3. If not found → throw `"Unauthorized file access request"`.
-
-**Path Validation (`validatePath`):**
-- Blocks system-critical directories on both Linux and Windows.
-- Strips null bytes to prevent path injection attacks.
-
-**Module:** `src/main/handlers/miscellaneous/shell-commands.ts`, `src/main/utils/paths.ts`
-
-### SafeRouting (Setup Guard)
-
-All routes except `/setup` and `*` (NotFound) are wrapped in `<SafeRouting>`. This component reads `config.initialized` from `AppConfigContext`. If the app has not been initialized (first run), the user is forcibly redirected to the Setup Wizard. This prevents access to any encryption functionality before the user has completed initial configuration.
-
-**Module:** `src/renderer/components/SafeRouting.tsx`
-
----
-
-## Appendix A: File Tree Summary
-
-```
-src/
-├── main/
-│   ├── main.ts                          # App entry point, single-instance lock
-│   ├── window-manager.ts                # BrowserWindow creation (main + logs)
-│   ├── ipc-handler.ts                   # Central IPC registration hub (35 channels)
-│   ├── constant/
-│   │   └── word-list.json               # 2048 BIP39 words for mnemonic generation
-│   ├── handlers/
-│   │   ├── encryption/
-│   │   │   ├── encryption-workflow.handler.ts   # Master encryption orchestrator
-│   │   │   ├── encryption-options.store.ts      # Options persistence + Zod validation
-│   │   │   └── helpers/
-│   │   │       ├── acquire-and-validate-files.ts # File validation + locking
-│   │   │       ├── encrypt-files.ts              # Parallel encryption orchestrator
-│   │   │       ├── encrypt-file-core.ts          # Streaming AES-256-GCM encryption
-│   │   │       ├── key-management.ts             # 3-tier key wrapping + binary metadata
-│   │   │       ├── encryption-change-journal.ts  # Transaction rollback support
-│   │   │       ├── encryption-emitter.ts         # Throttled progress events
-│   │   │       └── run-pool-job.ts               # Worker thread entry point
-│   │   ├── file-selection/
-│   │   │   ├── file-selection.handler.ts         # File/folder selection management
-│   │   │   ├── file-selection.utils.ts           # Virtual path, Zod schemas, type filtering
-│   │   │   └── file-selection.constants.ts       # Extension → category maps
-│   │   ├── config/
-│   │   │   └── app-config.handler.ts             # Persistent app configuration
-│   │   ├── cloud-sync/
-│   │   │   └── status.ts                         # STUB: hardcoded cloud status
-│   │   ├── storage/
-│   │   │   └── storage-info.handler.ts           # Disk space queries
-│   │   └── miscellaneous/
-│   │       ├── popup.emitter.ts                  # EventEmitter → renderer popups
-│   │       ├── shell-commands.ts                 # Secure URL/file opening
-│   │       └── app-update.ts                     # STUB: hardcoded update info
-│   ├── native/
-│   │   └── native_prompt.node                    # Pre-built native addon
-│   └── utils/
-│       ├── logger.ts                             # Disk-based structured logging
-│       ├── paths.ts                              # Path resolution + validation
-│       ├── askPassword.ts                        # Native password prompt wrapper
-│       ├── checkSystemResources.ts               # Pre-flight resource checks
-│       ├── getDriveInfoFromPath.ts               # Drive/partition detection
-│       ├── mnemonic.ts                           # BIP39 mnemonic generation + key derivation
-│       └── tpm-communication.ts                  # TPM encrypt/decrypt wrapper
-├── native/
-│   └── main.cpp                                  # C++ N-API: CredUI + TPM/NCrypt
-├── preload/
-│   └── preload.ts                                # contextBridge (7 API namespaces)
-├── renderer/
-│   ├── App.tsx                                   # Root component, routing, theme
-│   ├── main.tsx                                  # Bootstrap: fetch config → render
-│   ├── index.css                                 # Global styles
-│   ├── components/
-│   │   ├── GlobalPopup.tsx                       # Modal popup notification system
-│   │   ├── SafeRouting.tsx                       # Setup-required route guard
-│   │   ├── navigation/                           # Titlebar, sidebar components
-│   │   └── ui/                                   # shadcn/ui components
-│   ├── contexts/
-│   │   └── AppConfigContext.tsx                   # React context for app configuration
-│   ├── pages/
-│   │   ├── Home/                                 # Dashboard with storage + cloud + quick actions
-│   │   ├── FileSelection/                        # File picker with type filtering + options
-│   │   ├── EncryptionOptions/                    # Encryption level, paths, toggles
-│   │   ├── ConfirmEncryption/                    # Pre-encryption review with warnings
-│   │   ├── EncryptionProgress/                   # Real-time progress + per-file status
-│   │   ├── Settings/                             # Theme selection
-│   │   ├── Logs/                                 # Log viewer with real-time updates
-│   │   ├── About/                                # App info + credits
-│   │   ├── SetupWizard/                          # 3-step initial setup
-│   │   ├── Update/                               # Version info (STUB)
-│   │   └── NotFound.tsx                          # 404 page
-│   ├── lib/                                      # Utility functions
-│   └── types/
-│       └── electron.d.ts                         # Window API type declarations
-└── shared/
-    ├── constant/
-    │   ├── encryptionOptions.ts                   # Default options + level descriptors
-    │   ├── fileSelection.ts                       # Default file selection options
-    │   └── metadata.json                          # App branding + version
-    ├── types/
-    │   ├── global.d.ts                            # AppConfig, PopupPayload, SaveResult<T>
-    │   ├── fileEncryption.d.ts                    # EncryptionOptions, Progress, Stage, FileKeyEntry
-    │   ├── fileSelection.d.ts                     # SelectedFile, HandleFileOptions, etc.
-    │   └── cloudDrive.d.ts                        # CloudStatus, CloudDriveStatus
-    └── utils/
-        └── formatSize.ts                          # Bytes → human-readable string
-```
-
-## Appendix B: Stub/Placeholder Implementations
-
-| Module | Status | Details |
-|---|---|---|
-| `cloud-sync/status.ts` | **STUB** | Returns hardcoded cloud status with 4 providers (Google Drive inactive, OneDrive/Dropbox/Mega active). No actual cloud integration. |
-| `app-update.ts` | **STUB** | Returns hardcoded update info. No actual update-checking mechanism. |
-| "Open Vault" menu item | **DISABLED** | `MenuCard.tsx` has `disabled: true`. No decryption UI exists. |
-| "Encryption History" menu item | **DISABLED** | `MenuCard.tsx` has `disabled: true`. No history UI exists. |
-
-## Appendix C: Route Map
-
-| Path | Component | SafeRouting? | Description |
-|---|---|---|---|
-| `/` | `HomePage` | Yes | Dashboard with storage info, cloud status, quick actions |
-| `/file-selection` | `FileSelectionPage` | Yes | File/folder picker with type filtering |
-| `/encryption-options` | `EncryptionOptionsPage` | Yes | Encryption level, output path, recovery path, toggles |
-| `/confirm-encryption` | `ConfirmEncryptionPage` | Yes | Review all settings before starting |
-| `/encryption-progress` | `EncryptionProgressPage` | Yes | Real-time progress with per-file status |
-| `/settings` | `SettingsPage` | Yes | Theme selection (light/dark/system) |
-| `/logs` | `LogsPage` | Yes | Log viewer with real-time updates |
-| `/about` | `AboutPage` | Yes | App info, author, publisher, version |
-| `/update` | `UpdatePage` | Yes | Version info (stub) |
-| `/setup` | `SetupWizardPage` | **No** | 3-step initial setup wizard |
-| `*` | `NotFound` | **No** | 404 error page |
+* **Renderer Binding:** The `useAutoLock` hook monitors active DOM interactions (`mousemove`, `keydown`, `click`, `scroll`). If the page is active and the user is on the `/decrypted-content` view, the hook pings the main process once per second via `ping-activity`.
+* **Main Process Timer:** The main process runs a timer loop. If no ping is received for `inactivityTimeoutMs` (default 5 minutes), the main process executes `executeAutoLock()`:
+  1. Aborts any active file selections.
+  2. Unmounts the virtual drive (e.g. drive `Z:` / `/Volumes/SecureVault`).
+  3. Stops the local WebDAV server instance.
+  4. Calls `clearDecryptedCache()` and `clearCachedPassword()`, zeroing out all keys in memory.
+  5. Sends `vault-locked-inactivity` to all windows.
+  6. Opens a system message dialog alerting the user.
+* **Renderer Redirection:** Upon receiving `vault-locked-inactivity`, the renderer redirects the viewport to `/` (Home page) and resets theme/routing settings.
