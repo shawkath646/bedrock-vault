@@ -23,338 +23,343 @@ import {
     parsePersistedSelectionState,
     FileSelectionOptionsSchema,
 } from './file-selection.utils';
-import logger from '../../utils/logger';
+import type LoggerService from '@main/utils/logger';
 
-let selectedItemsMap: Map<string, SelectedFile> | null = null;
-let selectedFilesConfigPath = '';
-let selectedOptions: FileSelectionOptions = defaultFileSelectionOptions;
-let totalSize = 0;
-let fileCount = 0;
-let writePromise: Promise<void> = Promise.resolve();
+export default class FileSelectionService {
+    private selectedItemsMap: Map<string, SelectedFile> | null = null;
+    private selectedFilesConfigPath: string = '';
+    private selectedOptions: FileSelectionOptions = defaultFileSelectionOptions;
+    private totalSize: number = 0;
+    private fileCount: number = 0;
+    private writePromise: Promise<void> = Promise.resolve();
+    private logger: LoggerService;
 
-function requireSelectedItemsMap(): Map<string, SelectedFile> {
-    if (!selectedItemsMap) {
-        throw new Error('File selection handler is not initialized. Call initializeFileSelectionHandler() first.');
+    constructor(logger: LoggerService) {
+        this.logger = logger;
     }
 
-    return selectedItemsMap;
-}
-
-async function persistSelectedItemsToDisk(): Promise<void> {
-    const map = requireSelectedItemsMap();
-    const content = JSON.stringify(
-        {
-            selectedFiles: [...map.values()],
-            options: selectedOptions,
-            fileCount,
-            totalSize,
-        },
-        null,
-        2,
-    );
-
-    writePromise = writePromise.then(async () => {
-        try {
-            const temporaryFilePath = `${selectedFilesConfigPath}.tmp`;
-            await fs.writeFile(temporaryFilePath, content, 'utf-8');
-            await fs.rename(temporaryFilePath, selectedFilesConfigPath);
-        } catch (error) {
-            console.error('Error: Saving selected files to disk failed!', error);
-        }
-    });
-
-    await writePromise;
-}
-
-async function loadPersistedSelectionState() {
-    try {
-        const rawContent = await fs.readFile(selectedFilesConfigPath, 'utf-8');
-        return parsePersistedSelectionState(JSON.parse(rawContent));
-    } catch {
-        return createDefaultPersistedSelectionState();
-    }
-}
-
-async function addFilesFromDirectoryRecursively(
-    sourceDirectoryPath: string,
-    targetVirtualPath: string,
-    options: HandleFileOptions,
-): Promise<void> {
-    try {
-        const map = requireSelectedItemsMap();
-        const normalizedVirtualPath = normalizeVirtualPath(targetVirtualPath);
-        const baseName = getVirtualBaseName(normalizedVirtualPath);
+    public async initialize(): Promise<void> {
+        this.selectedFilesConfigPath = path.join(app.getPath('userData'), 'selected_files.json');
         
-        // Create virtual path entry for the folder itself
-        map.set(normalizedVirtualPath, {
-            name: baseName,
-            ext: '',
-            size: 0,
-            path: normalizedVirtualPath,
-            actualPath: sourceDirectoryPath,
-            isDir: true,
+        const state = await this.loadPersistedSelectionState();
+
+        this.selectedItemsMap = new Map(state.selectedFiles.map((file) => [file.path, file]));
+        this.selectedOptions = state.options;
+        this.totalSize = state.totalSize;
+        this.fileCount = state.fileCount;
+
+        await this.logger.info('FileSelection', `Initialized. Loaded ${this.fileCount} files, total size: ${this.totalSize} bytes`);
+    }
+
+    public cleanup(): void {
+        this.selectedItemsMap?.clear();
+        this.selectedItemsMap = null;
+        this.totalSize = 0;
+        this.fileCount = 0;
+        void this.logger.info('FileSelection', 'Cleaned up memory for background mode');
+    }
+
+    public async fetchSelectedFilesState(): Promise<SelectedFilesState> {
+        return {
+            options: this.selectedOptions,
+            fileCount: this.fileCount,
+            totalSize: this.totalSize,
+        };
+    }
+
+    public async updateFileSelectionOptions(
+        _event: IpcMainInvokeEvent,
+        partialOptions: Partial<FileSelectionOptions>,
+    ): Promise<SaveResult<FileSelectionOptions>> {
+        try {
+            const mergedOptions = {
+                ...this.selectedOptions,
+                ...partialOptions,
+            };
+
+            const validatedOptions = FileSelectionOptionsSchema.parse(mergedOptions);
+            this.selectedOptions = validatedOptions;
+
+            await this.persistSelectedItemsToDisk();
+            await this.logger.info('FileSelection', `Options updated: ${JSON.stringify(partialOptions)}`);
+            
+            return { success: true, data: validatedOptions };
+        } catch (error) {
+            if (error instanceof z.ZodError) {
+                return {
+                    success: false,
+                    errors: z.treeifyError(error) as Record<string, string[]>,
+                };
+            }
+            throw error;
+        }
+    }
+
+    public async handleFileSelectionAddFiles(_event: IpcMainInvokeEvent, options: HandleFileOptions): Promise<void> {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            properties: ['openFile', 'multiSelections'],
         });
 
-        const entries = await fs.readdir(sourceDirectoryPath, { withFileTypes: true });
+        if (canceled || filePaths.length === 0) {
+            await this.logger.info('FileSelection', 'File selection dialog cancelled');
+            return;
+        }
+
+        const map = this.requireSelectedItemsMap();
+        const existingVirtualPaths = new Set(map.keys());
+        let hasChanges = false;
 
         await Promise.all(
-            entries.map(async (entry) => {
-                const sourceEntryPath = path.join(sourceDirectoryPath, entry.name);
-                const targetEntryVirtualPath = `${normalizedVirtualPath}/${entry.name}`;
-
-                if (entry.isDirectory()) {
-                    if (options.includeSubfolders) {
-                        await addFilesFromDirectoryRecursively(sourceEntryPath, targetEntryVirtualPath, options);
-                    }
-                    return;
-                }
-
-                if (!entry.isFile() || !isFileTypeAllowed(entry.name, options)) {
-                    return;
-                }
-
+            filePaths.map(async (filePath) => {
                 try {
-                    const sourceEntryStat = await fs.stat(sourceEntryPath);
-                    if (sourceEntryStat.size > options.maxSize) {
-                        return;
-                    }
+                    if (!isFileTypeAllowed(filePath, options)) return;
 
-                    const normalizedEntryVirtualPath = normalizeVirtualPath(targetEntryVirtualPath);
-                    map.set(normalizedEntryVirtualPath, {
-                        name: entry.name,
-                        ext: path.extname(entry.name),
-                        size: sourceEntryStat.size,
-                        path: normalizedEntryVirtualPath,
-                        actualPath: sourceEntryPath,
+                    const sourceStat = await fs.stat(filePath);
+                    if (sourceStat.size > options.maxSize) return;
+
+                    const fileName = path.basename(filePath);
+                    const parentVirtualPath = options.currentPath ? normalizeVirtualPath(options.currentPath) : null;
+                    const virtualPath = generateVirtualPath(fileName, parentVirtualPath, existingVirtualPaths);
+                    
+                    existingVirtualPaths.add(virtualPath);
+
+                    map.set(virtualPath, {
+                        name: fileName,
+                        ext: path.extname(filePath),
+                        size: sourceStat.size,
+                        path: virtualPath,
+                        actualPath: filePath,
                         isDir: false,
                     });
 
-                    totalSize += sourceEntryStat.size;
-                    fileCount += 1;
+                    this.totalSize += sourceStat.size;
+                    this.fileCount += 1;
+                    hasChanges = true;
                 } catch (error) {
-                    console.error(`Failed to stat ${sourceEntryPath}`, error);
+                    console.error(`Failed to process file ${filePath}:`, error);
                 }
             }),
         );
-    } catch (error) {
-        console.error(`Failed to process directory ${sourceDirectoryPath}:`, error);
-    }
-}
 
-export async function initializeFileSelectionHandler(): Promise<void> {
-    selectedFilesConfigPath = path.join(app.getPath('userData'), 'selected_files.json');
-    const state = await loadPersistedSelectionState();
-
-    selectedItemsMap = new Map(state.selectedFiles.map((file) => [file.path, file]));
-    selectedOptions = state.options;
-    totalSize = state.totalSize;
-    fileCount = state.fileCount;
-
-    await logger.info('FileSelection', `Initialized. Loaded ${fileCount} files, total size: ${totalSize} bytes`);
-}
-
-export async function fetchSelectedFilesState(): Promise<SelectedFilesState> {
-    return {
-        options: selectedOptions,
-        fileCount,
-        totalSize,
-    };
-}
-
-export async function updateFileSelectionOptions(
-    _event: IpcMainInvokeEvent,
-    partialOptions: Partial<FileSelectionOptions>,
-): Promise<SaveResult<FileSelectionOptions>> {
-    try {
-        const mergedOptions = {
-            ...selectedOptions,
-            ...partialOptions,
-        };
-
-        const validatedOptions = FileSelectionOptionsSchema.parse(mergedOptions);
-        selectedOptions = validatedOptions;
-
-        await persistSelectedItemsToDisk();
-        await logger.info('FileSelection', `Options updated: ${JSON.stringify(partialOptions)}`);
-        return { success: true, data: validatedOptions };
-    } catch (error) {
-        if (error instanceof z.ZodError) {
-            return {
-                success: false,
-                errors: error.flatten().fieldErrors as Record<string, string[]>,
-            };
+        if (hasChanges) {
+            await this.persistSelectedItemsToDisk();
+            await this.logger.info('FileSelection', `Added files from dialog. New file count: ${this.fileCount}, size: ${this.totalSize} bytes`);
         }
-        throw error;
-    }
-}
-
-export async function handleFileSelectionAddFiles(_event: IpcMainInvokeEvent, options: HandleFileOptions): Promise<void> {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-        properties: ['openFile', 'multiSelections'],
-    });
-
-    if (canceled || filePaths.length === 0) {
-        await logger.info('FileSelection', 'File selection dialog cancelled');
-        return;
     }
 
-    const map = requireSelectedItemsMap();
-    const existingVirtualPaths = new Set(map.keys());
-    let hasChanges = false;
+    public async handleFileSelectionAddFolder(_event: IpcMainInvokeEvent, options: HandleFileOptions): Promise<void> {
+        const { canceled, filePaths } = await dialog.showOpenDialog({
+            properties: ['openDirectory', 'multiSelections'],
+        });
 
-    await Promise.all(
-        filePaths.map(async (filePath) => {
-            try {
-                if (!isFileTypeAllowed(filePath, options)) {
-                    return;
-                }
+        if (canceled || filePaths.length === 0) {
+            await this.logger.info('FileSelection', 'Folder selection dialog cancelled');
+            return;
+        }
 
-                const sourceStat = await fs.stat(filePath);
-                if (sourceStat.size > options.maxSize) {
-                    return;
-                }
+        const map = this.requireSelectedItemsMap();
+        const existingVirtualPaths = new Set(map.keys());
 
-                const fileName = path.basename(filePath);
-                const parentVirtualPath = options.currentPath ? normalizeVirtualPath(options.currentPath) : null;
-                const virtualPath = generateVirtualPath(fileName, parentVirtualPath, existingVirtualPaths);
-                
-                existingVirtualPaths.add(virtualPath);
+        for (const folderPath of filePaths) {
+            const folderName = path.basename(folderPath);
+            const parentVirtualPath = options.currentPath ? normalizeVirtualPath(options.currentPath) : null;
+            const targetVirtualPath = generateVirtualPath(folderName, parentVirtualPath, existingVirtualPaths);
+            
+            existingVirtualPaths.add(targetVirtualPath);
+            await this.addFilesFromDirectoryRecursively(folderPath, targetVirtualPath, options);
+        }
 
-                map.set(virtualPath, {
-                    name: fileName,
-                    ext: path.extname(filePath),
-                    size: sourceStat.size,
-                    path: virtualPath,
-                    actualPath: filePath,
-                    isDir: false,
-                });
-
-                totalSize += sourceStat.size;
-                fileCount += 1;
-                hasChanges = true;
-            } catch (error) {
-                console.error(`Failed to process file ${filePath}:`, error);
-            }
-        }),
-    );
-
-    if (hasChanges) {
-        await persistSelectedItemsToDisk();
-        await logger.info('FileSelection', `Added files from dialog. New file count: ${fileCount}, size: ${totalSize} bytes`);
-    }
-}
-
-export async function handleFileSelectionAddFolder(_event: IpcMainInvokeEvent, options: HandleFileOptions): Promise<void> {
-    const { canceled, filePaths } = await dialog.showOpenDialog({
-        properties: ['openDirectory', 'multiSelections'],
-    });
-
-    if (canceled || filePaths.length === 0) {
-        await logger.info('FileSelection', 'Folder selection dialog cancelled');
-        return;
+        await this.persistSelectedItemsToDisk();
+        await this.logger.info('FileSelection', `Added folders from dialog. New file count: ${this.fileCount}, size: ${this.totalSize} bytes`);
     }
 
-    const map = requireSelectedItemsMap();
-    const existingVirtualPaths = new Set(map.keys());
+    public async handleFileSelectionRemoveItem(_event: IpcMainInvokeEvent, targetPath: string): Promise<void> {
+        const map = this.requireSelectedItemsMap();
+        let hasChanges = false;
 
-    for (const folderPath of filePaths) {
-        const folderName = path.basename(folderPath);
-        const parentVirtualPath = options.currentPath ? normalizeVirtualPath(options.currentPath) : null;
-        const targetVirtualPath = generateVirtualPath(folderName, parentVirtualPath, existingVirtualPaths);
+        const normalizedPath = normalizeVirtualPath(targetPath);
+        const targetItem = map.get(normalizedPath);
         
-        existingVirtualPaths.add(targetVirtualPath);
-        await addFilesFromDirectoryRecursively(folderPath, targetVirtualPath, options);
-    }
+        if (targetItem) {
+            if (!targetItem.isDir) {
+                this.totalSize -= targetItem.size;
+                this.fileCount -= 1;
+            }
 
-    await persistSelectedItemsToDisk();
-    await logger.info('FileSelection', `Added folders from dialog. New file count: ${fileCount}, size: ${totalSize} bytes`);
-}
-
-export async function handleFileSelectionRemoveItem(_event: IpcMainInvokeEvent, targetPath: string): Promise<void> {
-    const map = requireSelectedItemsMap();
-    let hasChanges = false;
-
-    const normalizedPath = normalizeVirtualPath(targetPath);
-    const targetItem = map.get(normalizedPath);
-    
-    if (targetItem) {
-        if (!targetItem.isDir) {
-            totalSize -= targetItem.size;
-            fileCount -= 1;
+            map.delete(normalizedPath);
+            hasChanges = true;
         }
 
-        map.delete(normalizedPath);
-        hasChanges = true;
-    }
+        const itemPathPrefix = `${normalizedPath}/`;
+        for (const key of map.keys()) {
+            if (!key.startsWith(itemPathPrefix)) continue;
 
-    // Remove all children of the deleted item (for folder deletion)
-    const itemPathPrefix = `${normalizedPath}/`;
-    for (const key of map.keys()) {
-        if (!key.startsWith(itemPathPrefix)) {
-            continue;
+            const childItem = map.get(key);
+            if (childItem && !childItem.isDir) {
+                this.totalSize -= childItem.size;
+                this.fileCount -= 1;
+            }
+
+            map.delete(key);
+            hasChanges = true;
         }
 
-        const childItem = map.get(key);
-        if (childItem && !childItem.isDir) {
-            totalSize -= childItem.size;
-            fileCount -= 1;
-        }
-
-        map.delete(key);
-        hasChanges = true;
-    }
-
-    if (hasChanges) {
-        await persistSelectedItemsToDisk();
-        await logger.info('FileSelection', `Removed item: ${targetPath}. New file count: ${fileCount}, size: ${totalSize} bytes`);
-    }
-}
-
-export async function fetchCurrentPathSelectedFiles(
-    _event: IpcMainInvokeEvent,
-    currentPath: string | null
-): Promise<SelectedFile[]> {
-    const map = requireSelectedItemsMap();
-
-    if (!currentPath) {
-        return getRootLevelSelectedFiles(map);
-    }
-
-    const normalizedCurrentPath = normalizeVirtualPath(currentPath);
-    const result: SelectedFile[] = [];
-    
-    for (const item of map.values()) {
-        const parentPath = getVirtualParentPath(item.path);
-        if (parentPath === normalizedCurrentPath) {
-            result.push(item);
+        if (hasChanges) {
+            await this.persistSelectedItemsToDisk();
+            await this.logger.info('FileSelection', `Removed item: ${targetPath}. New file count: ${this.fileCount}, size: ${this.totalSize} bytes`);
         }
     }
 
-    return result;
-}
+    public async fetchCurrentPathSelectedFiles(
+        _event: IpcMainInvokeEvent,
+        currentPath: string | null
+    ): Promise<SelectedFile[]> {
+        const map = this.requireSelectedItemsMap();
 
-export function fetchAllSelectedItems(): {
-    selectedFiles: SelectedFile[];
-    totalSize: number;
-    fileCount: number;
-    selectedOptions: FileSelectionOptions;
-} {
-    const map = requireSelectedItemsMap();
-    const selectedFiles = [...map.values()].filter(file => !file.isDir);
+        if (!currentPath) {
+            return getRootLevelSelectedFiles(map);
+        }
 
-    return {
-        selectedFiles,
-        totalSize,
-        fileCount,
-        selectedOptions,
-    };
-}
+        const normalizedCurrentPath = normalizeVirtualPath(currentPath);
+        const result: SelectedFile[] = [];
+        
+        for (const item of map.values()) {
+            const parentPath = getVirtualParentPath(item.path);
+            if (parentPath === normalizedCurrentPath) {
+                result.push(item);
+            }
+        }
 
-export async function clearSelectedItems() {
-    const map = requireSelectedItemsMap();
-    map.clear();
-    totalSize = calculateSelectedFilesSize([]);
-    fileCount = countRegularFiles([]);
-    await persistSelectedItemsToDisk();
-    await logger.info('FileSelection', 'Cleared all selected items');
+        return result;
+    }
+
+    public fetchAllSelectedItems(): {
+        selectedFiles: SelectedFile[];
+        totalSize: number;
+        fileCount: number;
+        selectedOptions: FileSelectionOptions;
+    } {
+        const map = this.requireSelectedItemsMap();
+        const selectedFiles = [...map.values()].filter(file => !file.isDir);
+
+        return {
+            selectedFiles,
+            totalSize: this.totalSize,
+            fileCount: this.fileCount,
+            selectedOptions: this.selectedOptions,
+        };
+    }
+
+    public async clearSelectedItems(): Promise<void> {
+        const map = this.requireSelectedItemsMap();
+        map.clear();
+        this.totalSize = calculateSelectedFilesSize([]);
+        this.fileCount = countRegularFiles([]);
+        await this.persistSelectedItemsToDisk();
+        await this.logger.info('FileSelection', 'Cleared all selected items');
+    }
+
+
+    private requireSelectedItemsMap(): Map<string, SelectedFile> {
+        if (!this.selectedItemsMap) {
+            throw new Error('File selection handler is not initialized. Call initialize() first.');
+        }
+        return this.selectedItemsMap;
+    }
+
+    private async persistSelectedItemsToDisk(): Promise<void> {
+        const map = this.requireSelectedItemsMap();
+        const content = JSON.stringify(
+            {
+                selectedFiles: [...map.values()],
+                options: this.selectedOptions,
+                fileCount: this.fileCount,
+                totalSize: this.totalSize,
+            },
+            null,
+            2,
+        );
+
+        this.writePromise = this.writePromise.then(async () => {
+            try {
+                const temporaryFilePath = `${this.selectedFilesConfigPath}.tmp`;
+                await fs.writeFile(temporaryFilePath, content, 'utf-8');
+                await fs.rename(temporaryFilePath, this.selectedFilesConfigPath);
+            } catch (error) {
+                console.error('Error: Saving selected files to disk failed!', error);
+            }
+        });
+
+        await this.writePromise;
+    }
+
+    private async loadPersistedSelectionState() {
+        try {
+            const rawContent = await fs.readFile(this.selectedFilesConfigPath, 'utf-8');
+            return parsePersistedSelectionState(JSON.parse(rawContent));
+        } catch {
+            return createDefaultPersistedSelectionState();
+        }
+    }
+
+    private async addFilesFromDirectoryRecursively(
+        sourceDirectoryPath: string,
+        targetVirtualPath: string,
+        options: HandleFileOptions,
+    ): Promise<void> {
+        try {
+            const map = this.requireSelectedItemsMap();
+            const normalizedVirtualPath = normalizeVirtualPath(targetVirtualPath);
+            const baseName = getVirtualBaseName(normalizedVirtualPath);
+            
+            map.set(normalizedVirtualPath, {
+                name: baseName,
+                ext: '',
+                size: 0,
+                path: normalizedVirtualPath,
+                actualPath: sourceDirectoryPath,
+                isDir: true,
+            });
+
+            const entries = await fs.readdir(sourceDirectoryPath, { withFileTypes: true });
+
+            await Promise.all(
+                entries.map(async (entry) => {
+                    const sourceEntryPath = path.join(sourceDirectoryPath, entry.name);
+                    const targetEntryVirtualPath = `${normalizedVirtualPath}/${entry.name}`;
+
+                    if (entry.isDirectory()) {
+                        if (options.includeSubfolders) {
+                            await this.addFilesFromDirectoryRecursively(sourceEntryPath, targetEntryVirtualPath, options);
+                        }
+                        return;
+                    }
+
+                    if (!entry.isFile() || !isFileTypeAllowed(entry.name, options)) return;
+
+                    try {
+                        const sourceEntryStat = await fs.stat(sourceEntryPath);
+                        if (sourceEntryStat.size > options.maxSize) return;
+
+                        const normalizedEntryVirtualPath = normalizeVirtualPath(targetEntryVirtualPath);
+                        map.set(normalizedEntryVirtualPath, {
+                            name: entry.name,
+                            ext: path.extname(entry.name),
+                            size: sourceEntryStat.size,
+                            path: normalizedEntryVirtualPath,
+                            actualPath: sourceEntryPath,
+                            isDir: false,
+                        });
+
+                        this.totalSize += sourceEntryStat.size;
+                        this.fileCount += 1;
+                    } catch (error) {
+                        console.error(`Failed to stat ${sourceEntryPath}`, error);
+                    }
+                }),
+            );
+        } catch (error) {
+            console.error(`Failed to process directory ${sourceDirectoryPath}:`, error);
+        }
+    }
 }

@@ -1,7 +1,7 @@
 import {
     Lock,
     FolderKey,
-    History
+    Package
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import { Card, CardContent, CardDescription } from "@renderer/components/ui/card";
@@ -25,8 +25,8 @@ const menuItems: MenuItem[] = [
         id: 'encrypt',
         icon: Lock,
         title: 'Encrypt Files',
-        description: 'Secure new documents into your local vault.',
-        path: '/file-selection',
+        description: 'Secure new files into your local vault.',
+        path: '/encryption/file-selection',
         iconBgColor: 'bg-primary/10',
         iconTextColor: 'text-primary',
         hoverBgColor: 'group-hover:bg-primary',
@@ -38,7 +38,7 @@ const menuItems: MenuItem[] = [
         icon: FolderKey,
         title: 'Decrypt Files',
         description: 'Access and manage your decrypted data.',
-        path: '/encryption-record',
+        path: '/decryption/encryption-record',
         iconBgColor: 'bg-emerald-500/10',
         iconTextColor: 'text-emerald-600 dark:text-emerald-400',
         hoverBgColor: 'group-hover:bg-emerald-600',
@@ -46,11 +46,11 @@ const menuItems: MenuItem[] = [
         disabled: false
     },
     {
-        id: 'history',
-        icon: History,
-        title: 'History',
-        description: 'Show and access previous encryption, decryption history.',
-        path: '/history',
+        id: 'tools',
+        icon: Package,
+        title: 'Tools',
+        description: 'Access other bundled tools, related to this app.',
+        path: '/tools',
         iconBgColor: 'bg-muted',
         iconTextColor: 'text-muted-foreground',
         hoverBgColor: 'group-hover:bg-foreground',

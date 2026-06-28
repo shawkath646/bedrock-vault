@@ -4,9 +4,9 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 // Native Wrappers & Diagnostics
-import { tpmEncrypt } from '@main/utils/native-crypto';
+import type { NativeCryptoService } from '@main/utils/native-crypto';
 import { generateMnemonic, mnemonicToKey } from '@main/utils/mnemonic';
-import logger from '@main/utils/logger';
+import type LoggerService from '@main/utils/logger';
 
 // Shared Crypto Core Helpers
 import {
@@ -28,7 +28,7 @@ export interface OutputPath {
   metadataPath: string;
 }
 
-export async function level1Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath): Promise<void> {
+export async function level1Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath, logger: LoggerService): Promise<void> {
   const parsedMetadata = serializeMetadata(props);
   const dek = crypto.randomBytes(32);
   const salt = crypto.randomBytes(16);
@@ -92,7 +92,7 @@ export async function level1Enc(props: MetadataHandler, password: Buffer, output
   }
 }
 
-export async function level2Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath): Promise<void> {
+export async function level2Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath, logger: LoggerService, nativeCrypto: NativeCryptoService): Promise<void> {
   const parsedMetadata = serializeMetadata(props);
   const dek = crypto.randomBytes(32);
   const salt = crypto.randomBytes(16);
@@ -109,7 +109,7 @@ export async function level2Enc(props: MetadataHandler, password: Buffer, output
 
   try {
     metadataEnc = encryptDataRaw(parsedMetadata, dek);
-    tpmWrappedDek = await tpmEncrypt(dek);
+    tpmWrappedDek = await nativeCrypto.tpmEncrypt(dek);
     passWrap = encryptDataRaw(tpmWrappedDek!, passwordKey);
     backupWrap = encryptDataRaw(dek, recoveryPhraseKey);
 
@@ -159,7 +159,7 @@ export async function level2Enc(props: MetadataHandler, password: Buffer, output
   }
 }
 
-export async function level3Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath): Promise<void> {
+export async function level3Enc(props: MetadataHandler, password: Buffer, outputPath: OutputPath, logger: LoggerService, nativeCrypto: NativeCryptoService): Promise<void> {
   const parsedMetadata = serializeMetadata(props);
   const dek = crypto.randomBytes(32);
   const salt = crypto.randomBytes(16);
@@ -179,7 +179,7 @@ export async function level3Enc(props: MetadataHandler, password: Buffer, output
 
   try {
     metadataEnc = encryptDataRaw(parsedMetadata, dek);
-    tpmWrappedDek = await tpmEncrypt(dek);
+    tpmWrappedDek = await nativeCrypto.tpmEncrypt(dek);
     passWrap = encryptDataRaw(tpmWrappedDek!, passwordKey);
 
     const keyFileHeader = Buffer.from(KEYFILE_HEADER, "utf8");

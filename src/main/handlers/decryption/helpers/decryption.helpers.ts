@@ -1,8 +1,8 @@
 import crypto from 'node:crypto';
 import { promisify } from 'node:util';
 import type { FileKeyEntry } from '@shared/types/file-encryption';
-import { isTpmAvailable, isSoftwareKspAvailable, tpmDecrypt } from '@main/utils/native-crypto';
-import logger from '@main/utils/logger';
+import type { NativeCryptoService } from '@main/utils/native-crypto';
+import type LoggerService from '@main/utils/logger';
 import {
   decryptDataRaw,
   deserializeMetadata,
@@ -22,7 +22,9 @@ interface DecryptedPayloadResult {
 
 export async function decryptMetadataPayload(
   metadataBuffer: Buffer,
-  passwordBuffer: Buffer
+  passwordBuffer: Buffer,
+  logger: LoggerService,
+  nativeCrypto: NativeCryptoService
 ): Promise<DecryptedPayloadResult> {
   const header = parseMetadataHeader(metadataBuffer);
   
@@ -34,7 +36,7 @@ export async function decryptMetadataPayload(
   }
 
   // Validate TPM availability for Levels 2 & 3
-  if ((header.encryptionLevel === 2 || header.encryptionLevel === 3) && !isTpmAvailable() && !isSoftwareKspAvailable()) {
+  if ((header.encryptionLevel === 2 || header.encryptionLevel === 3) && !nativeCrypto.isTpmAvailable() && !nativeCrypto.isSoftwareKspAvailable()) {
     const errorWithLevel = new Error('TPM_UNAVAILABLE') as Error & { level?: number };
     errorWithLevel.level = header.encryptionLevel;
     throw errorWithLevel;
@@ -114,7 +116,7 @@ export async function decryptMetadataPayload(
         dek = decryptDataRaw(passWrap, passwordKey);
       } else {
         tpmWrappedDek = decryptDataRaw(passWrap, passwordKey);
-        dek = await tpmDecrypt(tpmWrappedDek);
+        dek = await nativeCrypto.tpmDecrypt(tpmWrappedDek);
       }
     } catch (err) {
       await logger.warn('DecryptionHelper', `Decryption of DEK failed: ${err}`);

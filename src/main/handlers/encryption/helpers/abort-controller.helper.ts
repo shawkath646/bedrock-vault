@@ -1,52 +1,65 @@
-import { askPassword } from '@main/utils/native-crypto';
+import type { NativeCryptoService } from '@main/utils/native-crypto';
 
-let abortController: AbortController | null = null;
-let inProgress = false;
-let cachedPassword: Buffer | null = null;
+export class EncryptionSessionService {
+  private abortController: AbortController | null = null;
+  private inProgress = false;
+  private cachedPassword: Buffer | null = null;
+  private nativeCrypto: NativeCryptoService;
 
-export const setInProgress = (val: boolean): void => {
-  inProgress = val;
-};
-
-export const isInProgress = (): boolean => {
-  return inProgress;
-};
-
-export const setAbortController = (ac: AbortController | null): void => {
-  abortController = ac;
-};
-
-export const getAbortController = (): AbortController | null => {
-  return abortController;
-};
-
-export const abortEncryption = (): void => {
-  if (inProgress) abortController?.abort('USER_ABORTED');
-};
-
-export async function setEncryptionPassword(): Promise<boolean> {
-  const buffer = await askPassword();
-  if (!buffer) return false;
-
-  if (cachedPassword) {
-    cachedPassword.fill(0);
+  constructor(nativeCrypto: NativeCryptoService) {
+    this.nativeCrypto = nativeCrypto;
   }
 
-  cachedPassword = buffer;
-  return true;
-}
+  public setInProgress(val: boolean): void {
+    this.inProgress = val;
+  }
 
-export function hasEncryptionPassword(): boolean {
-  return cachedPassword !== null;
-}
+  public isInProgress(): boolean {
+    return this.inProgress;
+  }
 
-export function getCachedPassword(): Buffer | null {
-  return cachedPassword;
-}
+  public setAbortController(ac: AbortController | null): void {
+    this.abortController = ac;
+  }
 
-export function clearCachedPassword(): void {
-  if (cachedPassword) {
-    cachedPassword.fill(0);
-    cachedPassword = null;
+  public getAbortController(): AbortController | null {
+    return this.abortController;
+  }
+
+  public abortEncryption(): void {
+    if (this.inProgress) this.abortController?.abort('USER_ABORTED');
+  }
+
+  public cleanup(): void {
+    this.clearCachedPassword();
+    this.abortEncryption();
+    this.setInProgress(false);
+  }
+
+  public async setEncryptionPassword(): Promise<boolean> {
+    const buffer = await this.nativeCrypto.askPassword();
+    if (!buffer) return false;
+
+    if (this.cachedPassword) {
+      this.cachedPassword.fill(0);
+    }
+
+    this.cachedPassword = buffer;
+    return true;
+  }
+
+  public hasEncryptionPassword(): boolean {
+    return this.cachedPassword !== null;
+  }
+
+  public getCachedPassword(): Buffer | null {
+    return this.cachedPassword;
+  }
+
+  public clearCachedPassword(): void {
+    if (this.cachedPassword) {
+      this.cachedPassword.fill(0);
+      this.cachedPassword = null;
+    }
   }
 }

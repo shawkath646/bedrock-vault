@@ -1,100 +1,148 @@
 import { BrowserWindow } from 'electron'
 import { getAppAssetPath } from './utils/path.utils'
-import logger from './utils/logger'
+import type { LoggerService } from './utils/logger'
 
+export default class WindowManager {
+    private mainWindow: BrowserWindow | null = null;
+    private previewWindow: BrowserWindow | null = null;
+    private logsWindow: BrowserWindow | null = null;
+    private devServerUrl?: string;
+    private logger: LoggerService | null = null;
 
-let mainWindow: BrowserWindow | null = null
-let logsWindow: BrowserWindow | null = null
-let logUrl: string | undefined = process.env.VITE_DEV_SERVER_URL;
-
-interface CreateWindowOptions {
-    devServerUrl?: string
-}
-
-export function createWindow(options: CreateWindowOptions = {}): BrowserWindow {
-    if (mainWindow) {
-        mainWindow.focus()
-        return mainWindow
+    constructor(devServerUrl?: string) {
+        this.devServerUrl = devServerUrl;
     }
 
-    if (options.devServerUrl) {
-        logUrl = options.devServerUrl
+    public setLoggerService(logger: LoggerService) {
+        this.logger = logger;
     }
 
-    mainWindow = new BrowserWindow({
-        width: 1000,
-        height: 700,
-        frame: false,
-        icon: getAppAssetPath('icon'),
-        webPreferences: {
-            preload: getAppAssetPath('preload')
-        },
-        fullscreenable: false,
-        resizable: false
-    })
-
-    void logger.info('WindowManager', 'Main window instance created')
-
-    mainWindow.on('close', () => {
-        void logger.info('WindowManager', 'Main window close event triggered')
-    })
-
-    mainWindow.on('closed', () => {
-        void logger.info('WindowManager', 'Main window closed, tearing down logsWindow if active')
-        mainWindow = null
-        if (logsWindow) {
-            logsWindow.close()
-            logsWindow = null
+    public createMainWindow(): BrowserWindow {
+        if (this.mainWindow) {
+            this.mainWindow.focus();
+            return this.mainWindow;
         }
-    })
 
-    if (options.devServerUrl) {
-        void mainWindow.loadURL(options.devServerUrl)
-    } else {
-        void mainWindow.loadFile(getAppAssetPath('dist'))
+        this.mainWindow = new BrowserWindow({
+            width: 1000,
+            height: 700,
+            frame: false,
+            icon: getAppAssetPath('icon'),
+            webPreferences: {
+                preload: getAppAssetPath('preload'),
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true
+            },
+            fullscreenable: false,
+            resizable: false
+        });
+
+        if (this.logger) void this.logger.info('WindowManager', 'Main window instance created');
+
+        this.mainWindow.on('closed', () => {
+            if (this.logger) void this.logger.info('WindowManager', 'Main window closed. Tearing down child windows.');
+            this.mainWindow = null;
+
+            if (this.logsWindow) {
+                this.logsWindow.close();
+            }
+            if (this.previewWindow) {
+                this.previewWindow.close();
+            }
+        });
+
+        this.loadRoute(this.mainWindow, '');
+
+        return this.mainWindow;
     }
 
-    return mainWindow
-}
+    public createPreviewWindow(streamUrl: string, token: string): BrowserWindow {
+        if (this.previewWindow) {
+            this.previewWindow.close();
+        }
 
-export function getMainWindow(): BrowserWindow | null {
-    return mainWindow
-}
+        this.previewWindow = new BrowserWindow({
+            width: 1100,
+            height: 800,
+            title: 'Media Preview',
+            frame: false,
+            webPreferences: {
+                preload: getAppAssetPath('preload'),
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true
+            },
+            resizable: true,
+            backgroundColor: '#000000',
+            x: 150,
+            y: 100
+        });
 
-export function createLogsWindow(): BrowserWindow {
-    if (logsWindow) {
-        logsWindow.focus()
-        return logsWindow
+        if (this.logger) void this.logger.info('WindowManager', 'Preview window instance created');
+
+        this.previewWindow.on('closed', () => {
+            if (this.logger) void this.logger.info('WindowManager', 'Preview window closed');
+            this.previewWindow = null;
+        });
+
+        const safeStreamUrl = encodeURIComponent(streamUrl);
+        const route = `/decryption/preview?src=${safeStreamUrl}&token=${token}`;
+
+        this.loadRoute(this.previewWindow, route);
+
+        return this.previewWindow;
     }
 
-    logsWindow = new BrowserWindow({
-        width: 850,
-        height: 600,
-        title: 'System Logs',
-        frame: false,
-        webPreferences: {
-            preload: getAppAssetPath('preload')
-        },
-        resizable: true
-    })
+    public createLogsWindow(): BrowserWindow {
+        if (this.logsWindow) {
+            this.logsWindow.focus();
+            return this.logsWindow;
+        }
 
-    void logger.info('WindowManager', 'Logs window instance created')
+        this.logsWindow = new BrowserWindow({
+            width: 850,
+            height: 600,
+            title: 'System Logs',
+            frame: false,
+            webPreferences: {
+                preload: getAppAssetPath('preload'),
+                nodeIntegration: false,
+                contextIsolation: true,
+                sandbox: true
+            },
+            resizable: true
+        });
 
-    logsWindow.on('close', () => {
-        void logger.info('WindowManager', 'Logs window close event triggered')
-    })
+        if (this.logger) void this.logger.info('WindowManager', 'Logs window instance created');
 
-    logsWindow.on('closed', () => {
-        void logger.info('WindowManager', 'Logs window closed')
-        logsWindow = null
-    })
+        this.logsWindow.on('closed', () => {
+            if (this.logger) void this.logger.info('WindowManager', 'Logs window closed');
+            this.logsWindow = null;
+        });
 
-    if (logUrl) {
-        void logsWindow.loadURL(`${logUrl}#/logs`)
-    } else {
-        void logsWindow.loadFile(getAppAssetPath('dist'), { hash: '/logs' })
+        this.loadRoute(this.logsWindow, '/logs');
+
+        return this.logsWindow;
     }
 
-    return logsWindow;
-}
+    public getMainWindow(): BrowserWindow | null {
+        return this.mainWindow;
+    }
 
+    /**
+     * Private helper to cleanly handle URL loading for both Dev and Prod environments
+     */
+    private loadRoute(window: BrowserWindow, hashRoute: string) {
+        if (this.devServerUrl) {
+            const url = hashRoute ? `${this.devServerUrl}#${hashRoute}` : this.devServerUrl;
+            void window.loadURL(url);
+        } else {
+            if (hashRoute) {
+                void window.loadFile(getAppAssetPath('dist'), { hash: hashRoute });
+            } else {
+                void window.loadFile(getAppAssetPath('dist'));
+            }
+        }
+    }
+}

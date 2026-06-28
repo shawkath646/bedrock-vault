@@ -66,7 +66,7 @@ export default function FileSelectionPage() {
     const onSubmit = async (data: FileSelectionOptions) => {
         const response = await window.fileSelection.saveOptions(data);
         if (response.success) {
-            navigate('/encryption-options');
+            navigate('/encryption/encryption-options');
         } else {
             Object.entries(response.errors).forEach(([field, messages]) => {
                 setError(field as keyof FileSelectionOptions, {

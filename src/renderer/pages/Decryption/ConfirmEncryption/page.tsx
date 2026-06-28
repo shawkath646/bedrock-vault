@@ -25,7 +25,7 @@ export default function ConfirmEncryptionPage() {
     useEffect(() => {
         window.encryptionOptions.hasEncryptionPassword().then(hasPassword => {
             if (!hasPassword) {
-                navigate("/encryption-options");
+                navigate("/encryption/encryption-options");
             }
         });
     }, [navigate]);
@@ -98,7 +98,7 @@ export default function ConfirmEncryptionPage() {
                     type="submit"
                     size="lg"
                     className="w-auto px-8"
-                    onClick={() => navigate("/encryption-progress")}
+                    onClick={() => navigate("/encryption/encryption-progress")}
                 >
                     I Understand
                     <ShieldCheck className="w-5 h-5 mr-2" />

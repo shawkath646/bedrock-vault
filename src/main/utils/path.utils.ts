@@ -12,7 +12,7 @@ export function getAppAssetPath(assetType: 'preload' | 'dist' | 'icon' | 'worker
   const mapping = {
     preload: 'dist/preload/preload.mjs',
     dist: 'dist/renderer/index.html',
-    icon: 'dist/renderer/icon.png',
+    icon: 'dist/renderer/icon_1024x1024.png',
     worker: 'dist/main/run-pool-job.js'
   };
   return join(app.getAppPath(), mapping[assetType]);

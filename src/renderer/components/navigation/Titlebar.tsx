@@ -21,12 +21,12 @@ export default function TitleBar({ component }: { component?: React.ReactElement
     const navigate = useNavigate();
 
     return (
-        <div className="titlebar flex justify-between w-full select-none bg-red-500">
+        <div className="titlebar flex justify-between w-full select-none">
             <div className="disable-titlebar-drag">
                 {component}
             </div>
             <div className="flex items-center gap-2 disable-titlebar-drag self-start pt-1">
-                {location.pathname === "/setup" || location.pathname === "/encryption-progress" || location.pathname === "/logs" ? null : (
+                {location.pathname === "/setup" || location.pathname === "/encryption-progress" || location.pathname === "/logs" || location.pathname === "/decryption/preview" ? null : (
                     <DropdownMenu>
                         <DropdownMenuTrigger className="inline-flex items-center justify-center w-8.5 h-7 rounded-md bg-transparent border border-transparent text-foreground hover:bg-blue-500/20 transition-colors">
                             <Ellipsis className="w-4 h-4" />

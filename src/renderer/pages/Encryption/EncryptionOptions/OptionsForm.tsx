@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useForm, Controller, useWatch } from "react-hook-form";
 import { Input } from "@renderer/components/ui/input";
 import { Label } from "@renderer/components/ui/label";
@@ -39,6 +39,29 @@ export default function OptionsForm() {
     });
 
     const encryptionLevel = useWatch({ control, name: "encryptionLevel" });
+    const fileOutputDirectory = useWatch({ control, name: "fileOutputDirectory" });
+    const recoveryPhrasePath = useWatch({ control, name: "recoveryPhrasePath" });
+    const recoveryPhraseFilePath = useWatch({ control, name: "recoveryPhraseFilePath" });
+
+    const sameDriveWarning = useMemo(() => {
+        const getDrive = (p?: string) => p?.match(/^[a-zA-Z]:/)?.[0]?.toUpperCase();
+        const drives = [];
+        if (fileOutputDirectory) drives.push({ name: "Output Directory", drive: getDrive(fileOutputDirectory) });
+        if (recoveryPhrasePath) drives.push({ name: "Recovery Phrase", drive: getDrive(recoveryPhrasePath) });
+        if (encryptionLevel === 3 && recoveryPhraseFilePath) drives.push({ name: "Supportive Key", drive: getDrive(recoveryPhraseFilePath) });
+
+        const activeDrives = drives.filter(d => d.drive);
+        const driveCounts = activeDrives.reduce((acc, curr) => {
+            acc[curr.drive!] = (acc[curr.drive!] || 0) + 1;
+            return acc;
+        }, {} as Record<string, number>);
+
+        const conflictingDrive = Object.keys(driveCounts).find(d => driveCounts[d] > 1);
+        if (conflictingDrive) {
+            return `Warning: Multiple critical files are mapped to the same drive (${conflictingDrive}). For optimal security, store recovery phrases and keys on a separate external drive (like a USB).`;
+        }
+        return null;
+    }, [fileOutputDirectory, recoveryPhrasePath, recoveryPhraseFilePath, encryptionLevel]);
 
     const pathPickers: Record<string, () => Promise<string | null>> = {
         fileOutputDirectory: window.encryptionOptions.selectOutputPath,
@@ -102,7 +125,7 @@ export default function OptionsForm() {
     const onSubmit = async (data: EncryptionOptions) => {
         const response = await window.encryptionOptions.saveOptions(data);
         if (response.success) {
-            navigate("/confirm-encryption");
+            navigate("/encryption/confirm-encryption");
         } else {
             Object.entries(response.errors).forEach(([field, messages]) => {
                 setError(field as keyof EncryptionOptions, {
@@ -245,6 +268,13 @@ export default function OptionsForm() {
                                 <FieldError errors={[errors[field.name]]} />
                             </Field>
                         ))}
+
+                        {sameDriveWarning && (
+                            <div className="flex items-start gap-2 p-2 mt-4 text-xs text-amber-600 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10 rounded-md border border-amber-200 dark:border-amber-400/20">
+                                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                                <p>{sameDriveWarning}</p>
+                            </div>
+                        )}
                     </section>
 
                     {/* Right Panel: Security Toggles */}

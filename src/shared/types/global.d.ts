@@ -5,6 +5,9 @@ export interface AppConfig {
     theme: "system" | "light" | "dark";
     shouldUpdate: boolean;
     inactivityTimeoutMs?: number;
+    panicButtonEnabled?: boolean;
+    panicButtonHotkey?: string;
+    appLockEnabled?: boolean;
 }
 
 export type EncryptionLevel = typeof VALID_ENCRYPTION_LEVELS[number];

@@ -92,6 +92,12 @@ contextBridge.exposeInMainWorld('decryption', {
   openVaultFile: (virtualPath: string) => ipcRenderer.invoke('decryption:open-vault-file', virtualPath)
 })
 
+contextBridge.exposeInMainWorld('panicButton', {
+  status: () => ipcRenderer.invoke('panic-button:status'),
+  set: (enabled: boolean, hotkey: string) => ipcRenderer.invoke('panic-button:set', enabled, hotkey),
+  checkAvailability: (hotkey: string) => ipcRenderer.invoke('panic-button:checkAvailability', hotkey)
+})
+
 const allowedSendChannels = ['start-security-timer', 'stop-security-timer', 'ping-activity'];
 const allowedReceiveChannels = ['vault-locked-inactivity'];
 const allowedInvokeChannels: string[] = [];

@@ -89,7 +89,7 @@ declare global {
       onStageUpdate: (callback: (stage: EncryptionStage) => void) => () => void;
       onProgress: (callback: (fileList: EncryptionProgress[]) => void) => () => void;
     },
-    
+
     cloudDrive: {
       getCloudStatus: () => Promise<CloudStatus>
     };
@@ -112,7 +112,7 @@ declare global {
       decryptMetadata: (directoryPath?: string) => Promise<DecryptMetadataResult>;
       getCurrentPathFiles: (currentPath: string | null) => Promise<DecryptedFileEntry[]>;
       lockVault: () => Promise<void>;
-      openVaultFile: (virtualPath: string) => Promise<void>;
+      openVaultFile: (virtualPath: string) => Promise<string>;
     };
 
     ipcRenderer: {
@@ -120,6 +120,12 @@ declare global {
       invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
       on: (channel: string, func: (...args: unknown[]) => void) => () => void;
     };
+
+    panicButton: {
+      status: () => Promise<{ enabled: boolean; hotkey: string }>;
+      set: (enabled: boolean, hotkey: string) => Promise<{ success: boolean; error?: string }>;
+      checkAvailability: (hotkey: string) => Promise<boolean>;
+    }
   }
 }
 

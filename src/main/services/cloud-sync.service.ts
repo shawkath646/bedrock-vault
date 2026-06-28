@@ -1,6 +1,14 @@
 import type { CloudStatus } from "@shared/types/cloud-drive";
 
-export class CloudSyncService {
+export default class CloudSyncService {
+    start() {
+        console.log("Cloud service started")
+    }
+
+    stop() {
+        console.log("Cloud service stopped")
+    }
+
     public async getCloudStatus(): Promise<CloudStatus> {
         const cloudStatus: CloudStatus = {
             isActive: false,

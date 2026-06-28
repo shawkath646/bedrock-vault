@@ -37,7 +37,7 @@ export function buildMetadataPayload(
   else throw new Error(`Invalid encryption level: ${level}`);
 
   const magicBytes = Buffer.from(magic, 'utf8'); // 4 bytes
-  
+
   const levelByte = Buffer.alloc(1);
   levelByte.writeUInt8(level, 0); // 1 byte
 
@@ -110,7 +110,7 @@ export function parseMetadataHeader(buffer: Buffer): ParsedHeader {
  */
 export function serializeMetadata(metadata: MetadataHandler): Buffer {
   const buffers: Buffer[] = [];
-  
+
   const writeString = (str: string) => {
     const strBuf = Buffer.from(str, 'utf8');
     const lenBuf = Buffer.alloc(4);
@@ -128,29 +128,29 @@ export function serializeMetadata(metadata: MetadataHandler): Buffer {
     writeString(entry.name);
     writeString(entry.encName);
     writeString(entry.virtualPath);
-    
+
     // Write key (32 bytes)
     const keyCopy = Buffer.alloc(32);
     entry.key.copy(keyCopy);
     buffers.push(keyCopy);
-    
+
     // Write iv (12 bytes)
     const ivCopy = Buffer.alloc(12);
     entry.iv.copy(ivCopy);
     buffers.push(ivCopy);
-    
+
     writeString(entry.enc_algorithm);
-    
+
     // Write size (8 bytes BigInt)
     const sizeBuf = Buffer.alloc(8);
     sizeBuf.writeBigInt64BE(BigInt(entry.size), 0);
     buffers.push(sizeBuf);
-    
+
     writeString(entry.ext);
   }
 
   const result = Buffer.concat(buffers);
-  
+
   // Zero out intermediate buffers to prevent keys/IVs from lingering in heap
   for (const buf of buffers) {
     buf.fill(0);

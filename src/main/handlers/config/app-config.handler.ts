@@ -3,7 +3,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import z from 'zod';
 import type { AppConfig } from '@shared/types/global';
-import logger from '../../utils/logger';
+import type LoggerService from '@main/utils/logger';
 
 const defaultAppConfig: AppConfig = {
     initialized: false,
@@ -19,50 +19,63 @@ const AppConfigSchema: z.ZodSchema<AppConfig> = z.object({
     theme: z.enum(['light', 'dark', 'system']),
     shouldUpdate: z.boolean(),
     inactivityTimeoutMs: z.number().int().positive().default(300000),
+    panicButtonEnabled: z.boolean().default(false).optional(),
+    panicButtonHotkey: z.string().default("CommandOrControl+Shift+L").optional(),
+    appLockEnabled: z.boolean().default(false).optional(),
 });
 
-async function ensureAppConfigDirectoryExists(): Promise<void> {
-    await fs.mkdir(path.dirname(appConfigFilePath), { recursive: true });
-}
+export class AppConfigService {
+    private logger: LoggerService;
 
-export async function resetAppConfiguration(): Promise<AppConfig> {
-    await ensureAppConfigDirectoryExists();
-    await fs.writeFile(appConfigFilePath, JSON.stringify(defaultAppConfig, null, 2));
-    await logger.warn('AppConfig', 'App configuration has been reset to defaults');
-    return defaultAppConfig;
-}
+    constructor(logger: LoggerService) {
+        this.logger = logger;
+    }
 
-export async function fetchAppConfiguration(): Promise<AppConfig> {
-    try {
-        const rawContent = await fs.readFile(appConfigFilePath, 'utf-8');
-        const parsed = AppConfigSchema.parse(JSON.parse(rawContent));
-        await logger.info('AppConfig', 'App configuration loaded successfully');
-        return parsed;
-    } catch (error) {
-        const nodeError = error as NodeJS.ErrnoException;
-        if (nodeError.code !== 'ENOENT') {
-            console.error('Failed to read or validate app config:', error);
-            await logger.error('AppConfig', `Failed to read or validate app config: ${error}`);
-        } else {
-            await logger.info('AppConfig', 'No existing config file found, using defaults');
-        }
+    private async ensureAppConfigDirectoryExists(): Promise<void> {
+        await fs.mkdir(path.dirname(appConfigFilePath), { recursive: true });
+    }
+
+    public async resetAppConfiguration(): Promise<AppConfig> {
+        await this.ensureAppConfigDirectoryExists();
+        await fs.writeFile(appConfigFilePath, JSON.stringify(defaultAppConfig, null, 2));
+        await this.logger.warn('AppConfig', 'App configuration has been reset to defaults');
         return defaultAppConfig;
     }
-}
 
-export async function updateAppConfiguration(_event: IpcMainInvokeEvent, partialConfig: Partial<AppConfig>): Promise<AppConfig> {
-    const existingConfig = await fetchAppConfiguration();
-    const mergedConfig = {
-        ...existingConfig,
-        ...partialConfig,
-    };
+    public async fetchAppConfiguration(): Promise<AppConfig> {
+        try {
+            const rawContent = await fs.readFile(appConfigFilePath, 'utf-8');
+            const parsed = AppConfigSchema.parse(JSON.parse(rawContent));
+            await this.logger.info('AppConfig', 'App configuration loaded successfully');
+            return parsed;
+        } catch (error) {
+            const nodeError = error as NodeJS.ErrnoException;
+            if (nodeError.code !== 'ENOENT') {
+                console.error('Failed to read or validate app config:', error);
+                await this.logger.error('AppConfig', `Failed to read or validate app config: ${error}`);
+            } else {
+                await this.logger.info('AppConfig', 'No existing config file found, using defaults');
+            }
+            return defaultAppConfig;
+        }
+    }
 
-    const validatedConfig = AppConfigSchema.parse(mergedConfig);
+    public async updateAppConfiguration(_event: IpcMainInvokeEvent | undefined, partialConfig: Partial<AppConfig>): Promise<AppConfig> {
+        const existingConfig = await this.fetchAppConfiguration();
+        const mergedConfig = {
+            ...existingConfig,
+            ...partialConfig,
+        };
 
-    await ensureAppConfigDirectoryExists();
-    await fs.writeFile(appConfigFilePath, JSON.stringify(validatedConfig, null, 2));
+        const validatedConfig = AppConfigSchema.parse(mergedConfig);
 
-    await logger.info('AppConfig', `App configuration updated: ${JSON.stringify(partialConfig)}`);
+        await this.ensureAppConfigDirectoryExists();
+        const tempFilePath = `${appConfigFilePath}.tmp`;
+        await fs.writeFile(tempFilePath, JSON.stringify(validatedConfig, null, 2));
+        await fs.rename(tempFilePath, appConfigFilePath);
 
-    return validatedConfig;
+        await this.logger.info('AppConfig', `App configuration updated: ${JSON.stringify(partialConfig)}`);
+
+        return validatedConfig;
+    }
 }

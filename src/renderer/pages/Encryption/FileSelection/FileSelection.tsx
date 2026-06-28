@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from "react";
 import { Button } from "@renderer/components/ui/button";
 import { ScrollArea } from "@renderer/components/ui/scroll-area";
-import logger from "../../lib/logger";
+import logger from "../../../lib/logger";
 import {
     DialogRoot,
     DialogPortal,

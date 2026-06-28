@@ -19,5 +19,5 @@ export interface DecryptedFileEntry {
 }
 
 export type DecryptMetadataResult = 
-  | { success: true; files?: DecryptedFileEntry[]; chunkName: string; level: EncryptionLevel; }
+  | { success: true; chunkName: string; level: EncryptionLevel; }
   | { success: false; error: string; level?: number };

@@ -37,7 +37,7 @@ export default function EncryptionRecordPage() {
         try {
             const selectedPath = await window.encryptionOptions.selectOutputPath();
             if (selectedPath) {
-                navigate(`/decrypted-content?directory=${encodeURIComponent(selectedPath)}`);
+                navigate(`/decryption/decrypted-content?directory=${encodeURIComponent(selectedPath)}`);
             }
         } catch (err) {
             console.error("Error selecting output path:", err);

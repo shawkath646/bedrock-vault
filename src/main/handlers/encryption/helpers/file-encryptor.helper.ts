@@ -6,26 +6,16 @@ import { Transform } from 'node:stream';
 import { MessageChannel } from 'node:worker_threads';
 import * as os from 'node:os';
 import path from 'node:path';
-import type Piscina from 'piscina';
-
-// Utility Imports
+import Piscina from 'piscina';
 import { getAppAssetPath } from '@main/utils/path.utils';
-
-// Emitter Import
-import { emitFileProgress } from './encryption-emitter.helper';
-
-// Store Import
-import { fetchEncryptionOptions } from '@main/handlers/encryption/encryption-options.store';
-
-// Types
+import type LoggerService from '@main/utils/logger';
 import type { SelectedFile, LockableFile } from '@shared/types/file-selection';
-import type { EncryptionProgress, FileKeyEntry } from '@shared/types/file-encryption';
+import type { EncryptionProgress, FileKeyEntry, EncryptionOptions } from '@shared/types/file-encryption';
 
-// Constants
 import { ENC_ALGORITHM } from '@main/constant/crypto.constants';
 import { INLINE_THRESHOLD_BYTES } from '@main/constant/file.constants';
+import type { RunOptions } from 'node:test';
 
-// --- File Acquisition & Locking Helpers ---
 export async function acquireAndValidateFiles(
   files: SelectedFile[],
 ): Promise<{ lockedFiles: LockableFile[]; skippedCount: number; totalSize: number }> {
@@ -43,11 +33,10 @@ export async function acquireAndValidateFiles(
           if (!file?.actualPath) throw new Error('Invalid file path');
           const stat = await fs.stat(file.actualPath);
           if (!stat.isFile()) throw new Error('Target is not a file');
-          const { lock } = await import('proper-lockfile');
-          const release = await lock(file.actualPath);
-          lockedFiles.push({ ...file, release });
+          lockedFiles.push({ ...file, release: async () => { } });
           totalSize += file.size || stat.size;
-        } catch {
+        } catch (err) {
+          console.error(`Skipped ${file.actualPath}:`, err);
           skippedCount += 1;
         }
       }),
@@ -57,9 +46,7 @@ export async function acquireAndValidateFiles(
   return { lockedFiles, skippedCount, totalSize };
 }
 
-export async function releaseAllLocks(files: LockableFile[]): Promise<void> {
-  await Promise.allSettled(files.map(f => f.release()));
-}
+
 
 // --- Single & Batch Encryption Core Helpers ---
 
@@ -82,11 +69,13 @@ interface EncryptFilesParams {
   progressMap: Map<string, EncryptionProgress>;
   journal: EncryptionChangeJournal;
   signal: AbortSignal;
+  emitFileProgress: (map: Map<string, EncryptionProgress>, immediate?: boolean) => void;
+  encryptionOptions: EncryptionOptions;
+  logger: LoggerService;
 }
 
 export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyEntry[]> {
-  const { files, outputDirectory, progressMap, journal, signal } = params;
-  const encryptionOptions = await fetchEncryptionOptions();
+  const { files, outputDirectory, progressMap, journal, signal, emitFileProgress, encryptionOptions, logger } = params;
 
   const smallFiles: LockableFile[] = [];
   const largeFiles: LockableFile[] = [];
@@ -113,6 +102,16 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
 
   const createTask = (file: LockableFile) => async (): Promise<FileKeyEntry> => {
     if (signal.aborted) throw new Error('USER_ABORTED');
+
+    let release: (() => Promise<void>) | undefined;
+    try {
+      const { lock } = await import('proper-lockfile');
+      release = await lock(file.actualPath);
+    } catch (err) {
+      updateProgress(file.actualPath, { status: 'failed' });
+      void logger.error('EncryptionTask', `Lock failed for ${file.actualPath}: ${err}`);
+      throw err;
+    }
 
     const key = crypto.randomBytes(32);
     const encName = encryptionOptions.encryptFileNameAndDirectory
@@ -151,14 +150,17 @@ export async function encryptFiles(params: EncryptFilesParams): Promise<FileKeyE
     } catch (err) {
       key.fill(0);
       updateProgress(file.actualPath, { status: 'failed' });
+      void logger.error('EncryptionTask', `Failed to encrypt ${file.actualPath}: ${err instanceof Error ? err.stack : err}`);
       throw err;
+    } finally {
+      await release?.();
     }
   };
 
   try {
     const [largeResults, smallResults] = await Promise.all([
       runWithConcurrencyLimit(largeFiles.map(createTask), cpuConcurrency),
-      runWithConcurrencyLimit(smallFiles.map(createTask), 50),
+      runWithConcurrencyLimit(smallFiles.map(createTask), 20),
     ]);
     emitFileProgress(progressMap, true);
     return [...largeResults, ...smallResults];
@@ -238,10 +240,8 @@ export async function poolEncrypt(pool: Piscina, params: EncryptionJobParams): P
       },
       {
         signal,
-        transferList: {
-          transfer: [port2],
-        },
-      },
+        transferList: [port2],
+      } as RunOptions,
     );
     return { iv: Buffer.from(ivHex, 'hex'), authTag: Buffer.from(authTagHex, 'hex') };
   } finally {
@@ -263,8 +263,9 @@ export async function runWithConcurrencyLimit<T>(
       const index = nextIndex++;
       try {
         results[index] = await tasks[index]();
-      } catch {
+      } catch (err) {
         /* failed tasks are excluded from results */
+        console.error(`Task failed at index ${index}:`, err);
       }
     }
   }
@@ -282,7 +283,10 @@ export class EncryptionChangeJournal {
   }
 
   async rollback(): Promise<void> {
-    await Promise.allSettled(this.created.map(p => fs.rm(p, { force: true })));
+    const tasks = this.created.map(p => async () => {
+      try { await fs.rm(p, { force: true }); } catch { /* empty */ }
+    });
+    await runWithConcurrencyLimit(tasks, 50);
     this.created.length = 0;
   }
 }

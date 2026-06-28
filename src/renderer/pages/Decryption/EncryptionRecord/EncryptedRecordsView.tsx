@@ -88,7 +88,7 @@ export default function EncryptedRecordsView({
                                         </Button>
                                         <Button
                                             variant="outline"
-                                            onClick={() => navigate(`/decrypted-content?directory=${encodeURIComponent(record.path)}`)}
+                                            onClick={() => navigate(`/decryption/decrypted-content?directory=${encodeURIComponent(record.path)}`)}
                                             disabled={!record.isAvailable}
                                             className="cursor-pointer"
                                         >

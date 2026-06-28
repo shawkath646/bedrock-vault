@@ -359,6 +359,19 @@ Napi::Value TpmDecrypt(const Napi::CallbackInfo &info)
     return deferred.Promise();
 }
 
+Napi::Value AuthenticateOsUser(const Napi::CallbackInfo &info)
+{
+    Napi::Env env = info.Env();
+    Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
+
+    // TODO: Implement Windows Hello / UserConsentVerifier here natively.
+    // The user will implement the WinRT code themselves.
+    // For now, immediately resolve to true to allow the app to launch.
+    deferred.Resolve(Napi::Boolean::New(env, true));
+
+    return deferred.Promise();
+}
+
 Napi::Object Init(Napi::Env env, Napi::Object exports)
 {
     exports.Set(Napi::String::New(env, "promptPassword"), Napi::Function::New(env, PromptPassword));
@@ -366,6 +379,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports)
     exports.Set(Napi::String::New(env, "tpmDecrypt"), Napi::Function::New(env, TpmDecrypt));
     exports.Set(Napi::String::New(env, "isTpmAvailable"), Napi::Function::New(env, IsTpmAvailable));
     exports.Set(Napi::String::New(env, "isSoftwareKspAvailable"), Napi::Function::New(env, IsSoftwareKspAvailable));
+    exports.Set(Napi::String::New(env, "authenticateOsUser"), Napi::Function::New(env, AuthenticateOsUser));
     return exports;
 }
 

@@ -9,7 +9,7 @@ import type { EncryptionProgress, EncryptionStage } from "@shared/types/file-enc
 import { Progress } from "@/components/ui/progress";
 import { StagesViewer } from "./StagesViewer";
 import GetFileIcon from "@/lib/getFileIcon";
-import logger from "../../lib/logger";
+import logger from "../../../lib/logger";
 import {
     DialogRoot,
     DialogPortal,
@@ -77,7 +77,7 @@ export default function EncryptionProgressPage() {
     useEffect(() => {
         window.encryptionOptions.hasEncryptionPassword().then(hasPassword => {
             if (!hasPassword) {
-                navigate("/encryption-options");
+                navigate("/encryption/encryption-options");
             } else {
                 void logger.info("EncryptionProgress", "Starting encryption workflow execution");
                 window.encryptionProgress.startEncryptionFlow();
@@ -330,9 +330,22 @@ export default function EncryptionProgressPage() {
                             </div>
                         </div>
 
-                        <div className="mt-6 flex justify-end">
+                        <div className="mt-6 flex justify-end gap-3">
+                            {stages?.current?.type === "COMPLETED" && (
+                                <Button
+                                    variant="outline"
+                                    className="w-full sm:w-auto font-medium py-2 rounded-lg transition-colors cursor-pointer"
+                                    onClick={() => {
+                                        if (outputDir) {
+                                            void window.appWindow.openPathWithSysApp(outputDir);
+                                        }
+                                    }}
+                                >
+                                    View Folder
+                                </Button>
+                            )}
                             <Button
-                                className="w-full bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2 rounded-lg transition-colors cursor-pointer"
+                                className="w-full sm:w-auto bg-primary hover:bg-primary/90 text-primary-foreground font-medium py-2 rounded-lg transition-colors cursor-pointer"
                                 onClick={() => navigate("/", { replace: true })}
                             >
                                 Return to Home

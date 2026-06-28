@@ -10,17 +10,18 @@ import GlobalPopup from './components/GlobalPopup';
 import useTheme from './lib/theme';
 
 const NotFound = lazy(() => import('./pages/NotFound'));
-const FileSelectionPage = lazy(() => import('./pages/FileSelection/page'));
+const FileSelectionPage = lazy(() => import('./pages/Encryption/FileSelection/page'));
 const SetupWizardPage = lazy(() => import('./pages/SetupWizard/page'));
-const EncryptionOptionsPage = lazy(() => import('./pages/EncryptionOptions/page'));
-const ConfirmEncryptionPage = lazy(() => import('./pages/ConfirmEncryption/page'));
-const EncryptionProgressPage = lazy(() => import('./pages/EncryptionProgress/page'));
+const EncryptionOptionsPage = lazy(() => import('./pages/Encryption/EncryptionOptions/page'));
+const ConfirmEncryptionPage = lazy(() => import('./pages/Decryption/ConfirmEncryption/page'));
+const EncryptionProgressPage = lazy(() => import('./pages/Encryption/EncryptionProgress/page'));
 const AboutPage = lazy(() => import('./pages/About/page'));
 const UpdatePage = lazy(() => import('./pages/Update/page'));
 const SettingsPage = lazy(() => import('./pages/Settings/page'));
 const LogPage = lazy(() => import('./pages/LogPage/page'));
-const EncryptionRecordPage = lazy(() => import('./pages/EncryptionRecord/page'));
-const DecryptedContentPage = lazy(() => import('./pages/DecryptedContent/page'));
+const EncryptionRecordPage = lazy(() => import('./pages/Decryption/EncryptionRecord/page'));
+const DecryptedContentPage = lazy(() => import('./pages/Decryption/DecryptedContent/page'));
+const PreviewPage = lazy(() => import('./pages/Decryption/Preview/page'));
 
 
 function RouteTracker() {
@@ -53,7 +54,7 @@ function AppContent() {
                   }
                 />
                 <Route
-                  path="/file-selection"
+                  path="/encryption/file-selection"
                   element={
                     <SafeRouting>
                       <FileSelectionPage />
@@ -61,7 +62,7 @@ function AppContent() {
                   }
                 />
                 <Route
-                  path="/encryption-options"
+                  path="/encryption/encryption-options"
                   element={
                     <SafeRouting>
                       <EncryptionOptionsPage />
@@ -70,7 +71,7 @@ function AppContent() {
                 />
 
                 <Route
-                  path="/confirm-encryption"
+                  path="/encryption/confirm-encryption"
                   element={
                     <SafeRouting>
                       <ConfirmEncryptionPage />
@@ -79,7 +80,7 @@ function AppContent() {
                 />
 
                 <Route
-                  path="/encryption-progress"
+                  path="/encryption/encryption-progress"
                   element={
                     <SafeRouting>
                       <EncryptionProgressPage />
@@ -88,7 +89,7 @@ function AppContent() {
                 />
 
                 <Route
-                  path="/encryption-record"
+                  path="/decryption/encryption-record"
                   element={
                     <SafeRouting>
                       <EncryptionRecordPage />
@@ -97,12 +98,17 @@ function AppContent() {
                 />
 
                 <Route
-                  path="/decrypted-content"
+                  path="/decryption/decrypted-content"
                   element={
                     <SafeRouting>
                       <DecryptedContentPage />
                     </SafeRouting>
                   }
+                />
+
+                <Route
+                  path="/decryption/preview"
+                  element={<PreviewPage />}
                 />
 
                 <Route
