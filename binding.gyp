@@ -16,7 +16,13 @@
         ["OS=='win'", {
           "libraries": [ "-lcredui.lib" ]
         }]
-      ]
+      ],
+      "msvs_settings": {
+        "VCCLCompilerTool": {
+          "ExceptionHandling": 1,
+          "AdditionalOptions": [ "/std:c++17", "/await" ]
+        }
+      }
     }
   ]
 } # type: ignore

@@ -21,9 +21,15 @@
 #include <vector>
 #include <string>
 
+// --- Windows Hello (WinRT) Includes ---
+#include <winrt/Windows.Foundation.h>
+#include <winrt/Windows.Security.Credentials.UI.h>
+#include <userconsentverifierinterop.h>
+
 #pragma comment(lib, "credui.lib")
 #pragma comment(lib, "advapi32.lib")
 #pragma comment(lib, "ncrypt.lib")
+#pragma comment(lib, "windowsapp.lib")
 
 // --- 1. Helper Function Moved Up ---
 SECURITY_STATUS GetTpmKey(NCRYPT_KEY_HANDLE &hKey)
@@ -44,7 +50,6 @@ SECURITY_STATUS GetTpmKey(NCRYPT_KEY_HANDLE &hKey)
         if (status == ERROR_SUCCESS)
         {
             status = NCryptFinalizeKey(hKey, 0);
-            // FIX: Prevent memory leak if finalize fails
             if (status != ERROR_SUCCESS)
             {
                 NCryptFreeObject(hKey);
@@ -69,8 +74,6 @@ public:
         CREDUI_INFOW credui = {0};
         credui.cbSize = sizeof(credui);
 
-        // FIX: Force NULL parent HWND to prevent thread deadlocking
-        // across Node's Libuv thread and Electron's UI thread.
         credui.hwndParent = NULL;
 
         credui.pszMessageText = L"Please enter chunk password.";
@@ -245,7 +248,6 @@ public:
         Napi::Env env = Env();
         Napi::Buffer<char> jsBuffer = Napi::Buffer<char>::Copy(env, reinterpret_cast<char *>(resultData.data()), resultData.size());
 
-        // Zero memory if it was a decryption (assuming plaintext is sensitive)
         if (!isEncrypt)
         {
             SecureZeroMemory(resultData.data(), resultData.size());
@@ -264,6 +266,65 @@ private:
     std::vector<char> inputData;
     std::vector<BYTE> resultData;
     bool isEncrypt;
+};
+
+class HelloAuthWorker : public Napi::AsyncWorker
+{
+public:
+    HelloAuthWorker(Napi::Env &env, Napi::Promise::Deferred &deferred)
+        : Napi::AsyncWorker(env), deferred(deferred), success(false) {}
+
+    void Execute() override
+    {
+        try { winrt::init_apartment(); } catch (...) {}
+
+        try
+        {
+            auto factory = winrt::get_activation_factory<
+                winrt::Windows::Security::Credentials::UI::UserConsentVerifier,
+                IUserConsentVerifierInterop>();
+
+            HWND hwnd = GetForegroundWindow();
+            if (!hwnd) hwnd = GetConsoleWindow();
+            if (!hwnd) hwnd = GetDesktopWindow(); 
+
+            winrt::hstring message = L"Please verify your identity to unlock Bedrock Vault.";
+            winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::Security::Credentials::UI::UserConsentVerificationResult> asyncOp{ nullptr };
+
+            winrt::check_hresult(factory->RequestVerificationForWindowAsync(
+                hwnd,
+                (HSTRING)winrt::get_abi(message),
+                winrt::guid_of<winrt::Windows::Foundation::IAsyncOperation<winrt::Windows::Security::Credentials::UI::UserConsentVerificationResult>>(),
+                winrt::put_abi(asyncOp)
+            ));
+
+            auto result = asyncOp.get();
+            success = (result == winrt::Windows::Security::Credentials::UI::UserConsentVerificationResult::Verified);
+        }
+        catch (const winrt::hresult_error& e)
+        {
+            SetError(winrt::to_string(e.message()));
+        }
+        catch (const std::exception& e)
+        {
+            SetError(e.what());
+        }
+    }
+
+    void OnOK() override
+    {
+        Napi::Env env = Env();
+        deferred.Resolve(Napi::Boolean::New(env, success));
+    }
+
+    void OnError(const Napi::Error &e) override
+    {
+        deferred.Reject(e.Value());
+    }
+
+private:
+    Napi::Promise::Deferred deferred;
+    bool success;
 };
 
 // --- JS Bindings ---
@@ -324,13 +385,10 @@ Napi::Value TpmEncrypt(const Napi::CallbackInfo &info)
         return env.Null();
     }
 
-    // Copy buffer data to hand off to background thread
     Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
     std::vector<char> inputData(input.Data(), input.Data() + input.Length());
 
     Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
-
-    // true = encrypt mode
     TpmCryptoWorker *worker = new TpmCryptoWorker(env, deferred, inputData, true);
     worker->Queue();
 
@@ -346,13 +404,10 @@ Napi::Value TpmDecrypt(const Napi::CallbackInfo &info)
         return env.Null();
     }
 
-    // Copy buffer data to hand off to background thread
     Napi::Buffer<char> input = info[0].As<Napi::Buffer<char>>();
     std::vector<char> inputData(input.Data(), input.Data() + input.Length());
 
     Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
-
-    // false = decrypt mode
     TpmCryptoWorker *worker = new TpmCryptoWorker(env, deferred, inputData, false);
     worker->Queue();
 
@@ -364,10 +419,8 @@ Napi::Value AuthenticateOsUser(const Napi::CallbackInfo &info)
     Napi::Env env = info.Env();
     Napi::Promise::Deferred deferred = Napi::Promise::Deferred::New(env);
 
-    // TODO: Implement Windows Hello / UserConsentVerifier here natively.
-    // The user will implement the WinRT code themselves.
-    // For now, immediately resolve to true to allow the app to launch.
-    deferred.Resolve(Napi::Boolean::New(env, true));
+    HelloAuthWorker *worker = new HelloAuthWorker(env, deferred);
+    worker->Queue();
 
     return deferred.Promise();
 }
